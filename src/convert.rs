@@ -409,11 +409,27 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             .is_some_and(|n| n.ends_with("-meta.json"));
 
         let node = if is_json {
-            json_writer::json_to_xml_node(&content)
-                .with_context(|| format!("Parsing JSON {}", compact_path.display()))?
+            match json_writer::json_to_xml_node(&content) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: skipping {} (not valid sf-compact JSON: {e})",
+                        compact_path.display()
+                    );
+                    continue;
+                }
+            }
         } else {
-            yaml_writer::yaml_to_xml_node(&content)
-                .with_context(|| format!("Parsing YAML {}", compact_path.display()))?
+            match yaml_writer::yaml_to_xml_node(&content) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: skipping {} (not valid sf-compact YAML: {e})",
+                        compact_path.display()
+                    );
+                    continue;
+                }
+            }
         };
 
         let xml = xml_parser::to_xml(&node);

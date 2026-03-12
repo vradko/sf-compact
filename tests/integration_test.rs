@@ -1204,6 +1204,58 @@ _children:
     assert!(content.contains(">59.0<"), "ordered XML missing apiVersion");
 }
 
+// ─── Bug fix tests ──────────────────────────────────────────────
+
+#[test]
+fn unpack_skips_invalid_sf_compact_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Create a file that matches -meta.yaml naming but has no _tag (not sf-compact)
+    std::fs::write(
+        dir.path().join("SomeObject.object-meta.yaml"),
+        "description: just a random YAML\nfields:\n- name: foo\n",
+    )
+    .unwrap();
+
+    // Also create a valid sf-compact file
+    std::fs::write(
+        dir.path().join("Test.cls-meta.yaml"),
+        "_tag: ApexClass\n_ns: http://soap.sforce.com/2006/04/metadata\napiVersion: '59.0'\nstatus: Active\n",
+    )
+    .unwrap();
+
+    let output = sf_compact()
+        .args([
+            "unpack",
+            dir.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run unpack");
+
+    // Should succeed (not crash) even with invalid file present
+    assert!(
+        output.status.success(),
+        "unpack should not crash on invalid sf-compact files: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Unpacked 1 files"),
+        "should only unpack valid sf-compact file, got: {stdout}"
+    );
+
+    // Should have a warning on stderr about the skipped file
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Warning: skipping"),
+        "should warn about skipped file, stderr: {stderr}"
+    );
+}
+
 /// Helper to recursively copy a directory.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
     std::fs::create_dir_all(dst).unwrap();
