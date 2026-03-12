@@ -68,7 +68,7 @@ fieldPermissions:
 cargo install --path .
 ```
 
-### From crates.io (coming soon)
+### From crates.io
 ```bash
 cargo install sf-compact
 ```
@@ -171,6 +171,38 @@ skip: []
 
 When `pack` runs, it reads `.sfcompact.yaml` and applies the format per metadata type. The `--format` CLI flag overrides the config for a single run.
 
+### Watch (auto-pack on changes)
+```bash
+sf-compact watch [source...] [-o output] [--format yaml|yaml-ordered|json] [--include pattern]
+```
+
+Watches source directories for XML changes and automatically repacks. Runs an initial pack, then monitors for file changes.
+
+```bash
+# Watch default force-app directory
+sf-compact watch
+
+# Watch with JSON format
+sf-compact watch force-app --format json
+```
+
+### Diff (detect unpacked changes)
+```bash
+sf-compact diff [source...] [-o packed-dir] [--include pattern]
+```
+
+Compare current XML metadata against the last packed output. Shows new, modified, and deleted files.
+
+```bash
+$ sf-compact diff
+
+  + force-app/main/default/profiles/NewProfile.profile-meta.xml  (new — not yet packed)
+  ~ force-app/main/default/flows/Case_Assignment.flow-meta.xml  (modified since last pack)
+
+1 new, 1 modified, 0 deleted, 3 unchanged
+Run `sf-compact pack` to update.
+```
+
 ### MCP Server
 
 sf-compact includes a built-in [MCP](https://modelcontextprotocol.io/) server for direct AI tool integration.
@@ -226,6 +258,8 @@ sf-compact manifest
 4. **Work with compact files** — let AI tools read/edit the YAML/JSON format
 5. **Unpack**: `sf-compact unpack` — restores XML for deployment
 6. **Deploy** to Salesforce (`sf project deploy`)
+
+> Use `sf-compact watch` during development to auto-pack on changes, and `sf-compact diff` to check if a repack is needed.
 
 > Tip: Add `.sf-compact/` to `.gitignore` if you treat it as a build artifact, or commit it for AI-friendly diffs.
 

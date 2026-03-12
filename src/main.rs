@@ -1,9 +1,11 @@
 mod config;
 mod convert;
+mod diff;
 mod json_writer;
 mod manifest;
 mod mcp;
 mod metadata_types;
+mod watch;
 mod xml_parser;
 mod yaml_writer;
 
@@ -79,6 +81,38 @@ enum Commands {
     Init {
         #[command(subcommand)]
         mode: InitMode,
+    },
+    /// Watch source directories and auto-pack on XML changes
+    Watch {
+        /// Source path: directory or specific file(s)
+        #[arg(default_value = "force-app")]
+        source: Vec<PathBuf>,
+
+        /// Output directory for compact files
+        #[arg(short, long, default_value = ".sf-compact")]
+        output: PathBuf,
+
+        /// Only include files matching this glob pattern
+        #[arg(long)]
+        include: Option<String>,
+
+        /// Output format override (yaml, yaml-ordered, or json)
+        #[arg(long)]
+        format: Option<String>,
+    },
+    /// Show which XML files changed since last pack
+    Diff {
+        /// Source path: directory or specific file(s)
+        #[arg(default_value = "force-app")]
+        source: Vec<PathBuf>,
+
+        /// Packed directory to compare against
+        #[arg(short, long, default_value = ".sf-compact")]
+        output: PathBuf,
+
+        /// Only include files matching this glob pattern
+        #[arg(long)]
+        include: Option<String>,
     },
     /// Manage .sfcompact.yaml configuration
     Config {
@@ -229,6 +263,50 @@ fn main() -> Result<()> {
                         fi.relative_path, fi.original_tokens, fi.compact_tokens
                     );
                 }
+            }
+        }
+        Commands::Watch {
+            source,
+            output,
+            include,
+            format,
+        } => {
+            watch::watch(&source, &output, include, format)?;
+        }
+        Commands::Diff {
+            source,
+            output,
+            include,
+        } => {
+            let result = diff::diff(&source, &output, include.as_deref())?;
+
+            let total_changes =
+                result.new_files.len() + result.modified_files.len() + result.deleted_files.len();
+
+            if total_changes == 0 {
+                println!(
+                    "No changes detected ({} files up to date)",
+                    result.unchanged_files
+                );
+            } else {
+                for f in &result.new_files {
+                    println!("  + {f}  (new — not yet packed)");
+                }
+                for f in &result.modified_files {
+                    println!("  ~ {f}  (modified since last pack)");
+                }
+                for f in &result.deleted_files {
+                    println!("  - {f}  (packed file has no source XML)");
+                }
+                println!();
+                println!(
+                    "{} new, {} modified, {} deleted, {} unchanged",
+                    result.new_files.len(),
+                    result.modified_files.len(),
+                    result.deleted_files.len(),
+                    result.unchanged_files,
+                );
+                println!("Run `sf-compact pack` to update.");
             }
         }
         Commands::McpServe => {

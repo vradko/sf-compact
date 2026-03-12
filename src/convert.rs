@@ -516,6 +516,48 @@ pub fn unpack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
     )
 }
 
+// ─── Public accessors for diff module ────────────────────────────
+
+/// Find SF metadata XML files (public for diff).
+pub fn find_sf_xml_files(opts: &ConvertOpts) -> Vec<PathBuf> {
+    find_sf_xml_files_from_opts(opts)
+}
+
+/// Find compact files (public for diff).
+pub fn find_compact_files(opts: &ConvertOpts) -> Vec<PathBuf> {
+    find_compact_files_from_opts(opts)
+}
+
+/// Common root (public for diff).
+pub fn common_root_from_opts(opts: &ConvertOpts) -> PathBuf {
+    common_root(opts)
+}
+
+/// Metadata type for a path (public for diff).
+pub fn metadata_type_for(path: &Path) -> String {
+    metadata_type(path)
+}
+
+/// Effective format (public for diff).
+pub fn effective_format_for(
+    short_type: &str,
+    type_name: &str,
+    cfg: &config::SfCompactConfig,
+    cli_override: &Option<String>,
+) -> String {
+    effective_format(short_type, type_name, cfg, cli_override)
+}
+
+/// Compact path for XML (public for diff).
+pub fn compact_path_for(
+    xml_path: &Path,
+    source_root: &Path,
+    output_root: &Path,
+    format: &str,
+) -> PathBuf {
+    compact_path_for_xml(xml_path, source_root, output_root, format)
+}
+
 fn accumulate_stats(
     stats: &mut ConvertStats,
     xml_path: &Path,
