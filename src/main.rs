@@ -1,7 +1,9 @@
 mod config;
 mod convert;
+mod json_writer;
 mod manifest;
 mod mcp;
+mod metadata_types;
 mod xml_parser;
 mod yaml_writer;
 
@@ -23,19 +25,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Convert Salesforce XML metadata to compact YAML
+    /// Convert Salesforce XML metadata to compact YAML or JSON
     Pack {
         /// Source path: directory or specific file(s)
         #[arg(default_value = "force-app")]
         source: Vec<PathBuf>,
 
-        /// Output directory for compact YAML files
+        /// Output directory for compact files
         #[arg(short, long, default_value = ".sf-compact")]
         output: PathBuf,
 
         /// Only include files matching this glob pattern (e.g. "profiles/**", "*.profile-meta.xml")
         #[arg(long)]
         include: Option<String>,
+
+        /// Output format override (yaml or json). Takes precedence over config.
+        #[arg(long)]
+        format: Option<String>,
     },
     /// Convert compact YAML back to Salesforce XML metadata (semantically lossless)
     Unpack {
@@ -121,10 +127,12 @@ fn main() -> Result<()> {
             source,
             output,
             include,
+            format,
         } => {
             let opts = convert::ConvertOpts {
                 paths: source,
                 include,
+                format_override: format,
             };
             let stats = convert::pack(&opts, &output)?;
             println!(
@@ -144,6 +152,7 @@ fn main() -> Result<()> {
             let opts = convert::ConvertOpts {
                 paths: source,
                 include,
+                format_override: None,
             };
             let stats = convert::unpack(&opts, &output)?;
             println!("Unpacked {} files", stats.files_processed);
@@ -156,6 +165,7 @@ fn main() -> Result<()> {
             let opts = convert::ConvertOpts {
                 paths: source,
                 include,
+                format_override: None,
             };
             let stats = convert::stats(&opts)?;
 
@@ -257,7 +267,7 @@ fn main() -> Result<()> {
 }
 
 fn config_init() -> Result<()> {
-    let entries = manifest::metadata_info_for_config();
+    let entries = metadata_types::metadata_info_for_config();
     let cfg = config::SfCompactConfig::with_smart_defaults(&entries);
     let path = config::save_config_to_dir(&cfg, &std::env::current_dir()?)?;
     println!("Created {}", path.display());

@@ -1,4 +1,6 @@
 use crate::config;
+use crate::json_writer;
+use crate::metadata_types;
 use crate::xml_parser;
 use crate::yaml_writer;
 use anyhow::{Context, Result};
@@ -7,59 +9,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-pub const SF_META_EXTENSIONS: &[&str] = &[
-    "profile-meta.xml",
-    "permissionset-meta.xml",
-    "permissionsetgroup-meta.xml",
-    "object-meta.xml",
-    "field-meta.xml",
-    "validationRule-meta.xml",
-    "flow-meta.xml",
-    "layout-meta.xml",
-    "labels-meta.xml",
-    "cls-meta.xml",
-    "trigger-meta.xml",
-    "component-meta.xml",
-    "page-meta.xml",
-    "js-meta.xml",
-    "css-meta.xml",
-    "html-meta.xml",
-    "xml-meta.xml",
-    "email-meta.xml",
-    "workflow-meta.xml",
-    "app-meta.xml",
-    "tab-meta.xml",
-    "flexipage-meta.xml",
-    "site-meta.xml",
-    "remoteSite-meta.xml",
-    "cspTrustedSite-meta.xml",
-    "connectedApp-meta.xml",
-    "customMetadata-meta.xml",
-    "globalValueSet-meta.xml",
-    "standardValueSet-meta.xml",
-    "quickAction-meta.xml",
-    "reportType-meta.xml",
-    "report-meta.xml",
-    "dashboard-meta.xml",
-    "pathAssistant-meta.xml",
-    "listView-meta.xml",
-    "recordType-meta.xml",
-    "compactLayout-meta.xml",
-    "webLink-meta.xml",
-    "sharingRules-meta.xml",
-    "assignmentRules-meta.xml",
-    "autoResponseRules-meta.xml",
-    "escalationRules-meta.xml",
-    "matchingRule-meta.xml",
-    "duplicateRule-meta.xml",
-];
-
 /// Options for selecting which files to process.
 pub struct ConvertOpts {
     /// One or more paths (files or directories).
     pub paths: Vec<PathBuf>,
     /// Optional glob filter (e.g. "profiles/**", "*.flow-meta.xml").
     pub include: Option<String>,
+    /// CLI format override (takes precedence over config).
+    pub format_override: Option<String>,
 }
 
 pub struct FileStats {
@@ -144,7 +101,7 @@ fn count_tokens(text: &str) -> usize {
 
 fn is_sf_metadata(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    SF_META_EXTENSIONS.iter().any(|ext| name.ends_with(ext))
+    metadata_types::is_sf_metadata_filename(name)
 }
 
 fn metadata_type(path: &Path) -> String {
@@ -163,22 +120,8 @@ fn metadata_type_for_ext(path: &Path, suffix: &str) -> String {
 }
 
 /// Map a short metadata_type (like "flow") to the manifest type name (like "Flow").
-/// Used for config lookup.
 fn manifest_type_name(short_type: &str) -> String {
-    // We look up from the classify function in manifest via the extension mapping
-    let ext = format!("{short_type}-meta.xml");
-    for sf_ext in SF_META_EXTENSIONS {
-        if *sf_ext == ext {
-            // Found the extension, now get the type name from manifest
-            return crate::manifest::build_manifest()
-                .supported_metadata
-                .into_iter()
-                .find(|e| e.extension == ext)
-                .map(|e| e.meta_type)
-                .unwrap_or_else(|| short_type.to_string());
-        }
-    }
-    short_type.to_string()
+    metadata_types::manifest_type_for_short(short_type)
 }
 
 fn find_sf_xml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
@@ -209,22 +152,22 @@ fn find_sf_xml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
     files
 }
 
-fn is_sf_compact_yaml(path: &Path) -> bool {
+fn is_sf_compact_file(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    name.ends_with("-meta.yaml")
+    name.ends_with("-meta.yaml") || name.ends_with("-meta.json")
 }
 
-fn find_yaml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
+fn find_compact_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
     for path in &opts.paths {
         if path.is_file() {
-            if is_sf_compact_yaml(path) {
+            if is_sf_compact_file(path) {
                 files.push(path.clone());
             }
         } else if path.is_dir() {
             for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
-                if entry.file_type().is_file() && is_sf_compact_yaml(entry.path()) {
+                if entry.file_type().is_file() && is_sf_compact_file(entry.path()) {
                     files.push(entry.path().to_path_buf());
                 }
             }
@@ -329,26 +272,39 @@ fn safe_relative(path: &Path, root: &Path) -> PathBuf {
         })
 }
 
-fn yaml_path_for_xml(xml_path: &Path, source_root: &Path, output_root: &Path) -> PathBuf {
+/// Compute compact output path for an XML file, using the given format extension.
+fn compact_path_for_xml(
+    xml_path: &Path,
+    source_root: &Path,
+    output_root: &Path,
+    format: &str,
+) -> PathBuf {
     let relative = safe_relative(xml_path, source_root);
     let mut out = output_root.join(relative);
+    let ext = if format == "json" {
+        "-meta.json"
+    } else {
+        "-meta.yaml"
+    };
     let name = out
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
-        .replace("-meta.xml", "-meta.yaml");
+        .replace("-meta.xml", ext);
     out.set_file_name(name);
     out
 }
 
-fn xml_path_for_yaml(yaml_path: &Path, source_root: &Path, output_root: &Path) -> PathBuf {
-    let relative = safe_relative(yaml_path, source_root);
+/// Compute XML output path for a compact file (YAML or JSON).
+fn xml_path_for_compact(compact_path: &Path, source_root: &Path, output_root: &Path) -> PathBuf {
+    let relative = safe_relative(compact_path, source_root);
     let mut out = output_root.join(relative);
     let name = out
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
-        .replace("-meta.yaml", "-meta.xml");
+        .replace("-meta.yaml", "-meta.xml")
+        .replace("-meta.json", "-meta.xml");
     out.set_file_name(name);
     out
 }
@@ -362,7 +318,26 @@ fn validate_paths(paths: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-/// Pack: XML → YAML
+/// Determine effective format for a file, considering CLI override and config.
+fn effective_format(
+    short_type: &str,
+    type_name: &str,
+    cfg: &config::SfCompactConfig,
+    cli_override: &Option<String>,
+) -> String {
+    if let Some(fmt) = cli_override {
+        return fmt.clone();
+    }
+    let format = cfg.format_for_type(type_name);
+    let format_alt = cfg.format_for_type(short_type);
+    if format != "yaml" {
+        format.to_string()
+    } else {
+        format_alt.to_string()
+    }
+}
+
+/// Pack: XML → compact format (YAML or JSON)
 pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     validate_paths(&opts.paths)?;
     let files = find_sf_xml_files_from_opts(opts);
@@ -381,16 +356,7 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             continue;
         }
 
-        // Check the configured format for this type
-        let format = cfg.format_for_type(&type_name);
-        let format_alt = cfg.format_for_type(&short_type);
-        let effective_format = if format != "yaml" { format } else { format_alt };
-        if effective_format != "yaml" {
-            eprintln!(
-                "Warning: {} format not yet supported for {}, using YAML",
-                effective_format, type_name
-            );
-        }
+        let format = effective_format(&short_type, &type_name, &cfg, &opts.format_override);
 
         let xml_content = fs::read_to_string(xml_path)
             .with_context(|| format!("Reading {}", xml_path.display()))?;
@@ -399,46 +365,63 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
         let node = xml_parser::parse_xml(&xml_content)
             .with_context(|| format!("Parsing {}", xml_path.display()))?;
 
-        let yaml = yaml_writer::xml_to_yaml(&node)
-            .with_context(|| format!("Converting {}", xml_path.display()))?;
-        let yaml_bytes = yaml.len() as u64;
+        let (compact_content, ext) = if format == "json" {
+            let json = json_writer::xml_to_json(&node)
+                .with_context(|| format!("Converting {} to JSON", xml_path.display()))?;
+            (json, "json")
+        } else {
+            let yaml = yaml_writer::xml_to_yaml(&node)
+                .with_context(|| format!("Converting {} to YAML", xml_path.display()))?;
+            (yaml, "yaml")
+        };
+        let compact_bytes = compact_content.len() as u64;
 
-        let yaml_path = yaml_path_for_xml(xml_path, &root, output);
-        if let Some(parent) = yaml_path.parent() {
+        let out_path = compact_path_for_xml(xml_path, &root, output, ext);
+        if let Some(parent) = out_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&yaml_path, &yaml)?;
+        fs::write(&out_path, &compact_content)?;
 
-        accumulate_stats(&mut stats, xml_path, &root, xml_bytes, yaml_bytes, 0, 0);
+        accumulate_stats(&mut stats, xml_path, &root, xml_bytes, compact_bytes, 0, 0);
     }
 
     Ok(stats)
 }
 
-/// Unpack: YAML → XML
+/// Unpack: compact format (YAML or JSON) → XML
 pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     validate_paths(&opts.paths)?;
-    let files = find_yaml_files_from_opts(opts);
+    let files = find_compact_files_from_opts(opts);
     let root = common_root(opts);
     let mut stats = ConvertStats::new();
 
-    for yaml_path in &files {
-        let yaml_content = fs::read_to_string(yaml_path)
-            .with_context(|| format!("Reading {}", yaml_path.display()))?;
+    for compact_path in &files {
+        let content = fs::read_to_string(compact_path)
+            .with_context(|| format!("Reading {}", compact_path.display()))?;
 
-        let node = yaml_writer::yaml_to_xml_node(&yaml_content)
-            .with_context(|| format!("Converting {}", yaml_path.display()))?;
+        let is_json = compact_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with("-meta.json"));
+
+        let node = if is_json {
+            json_writer::json_to_xml_node(&content)
+                .with_context(|| format!("Parsing JSON {}", compact_path.display()))?
+        } else {
+            yaml_writer::yaml_to_xml_node(&content)
+                .with_context(|| format!("Parsing YAML {}", compact_path.display()))?
+        };
 
         let xml = xml_parser::to_xml(&node);
 
-        let xml_path = xml_path_for_yaml(yaml_path, &root, output);
+        let xml_path = xml_path_for_compact(compact_path, &root, output);
         if let Some(parent) = xml_path.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::write(&xml_path, &xml)?;
 
         stats.files_processed += 1;
-        stats.compact_bytes += yaml_content.len() as u64;
+        stats.compact_bytes += content.len() as u64;
         stats.original_bytes += xml.len() as u64;
     }
 
@@ -485,6 +468,7 @@ pub fn stats_path(source: &Path) -> Result<ConvertStats> {
     stats(&ConvertOpts {
         paths: vec![source.to_path_buf()],
         include: None,
+        format_override: None,
     })
 }
 
@@ -494,6 +478,7 @@ pub fn pack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
         &ConvertOpts {
             paths: vec![source.to_path_buf()],
             include: None,
+            format_override: None,
         },
         output,
     )
@@ -505,6 +490,7 @@ pub fn unpack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
         &ConvertOpts {
             paths: vec![source.to_path_buf()],
             include: None,
+            format_override: None,
         },
         output,
     )
