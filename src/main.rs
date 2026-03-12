@@ -1,3 +1,4 @@
+mod config;
 mod convert;
 mod manifest;
 mod mcp;
@@ -73,6 +74,11 @@ enum Commands {
         #[command(subcommand)]
         mode: InitMode,
     },
+    /// Manage .sfcompact.yaml configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -85,6 +91,26 @@ enum InitMode {
         #[arg(long, default_value = "SF_COMPACT.md")]
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Create .sfcompact.yaml with smart defaults
+    Init,
+    /// Set format for metadata types (e.g. `config set flow json profile yaml`) or set default format (`config set default json`)
+    Set {
+        /// Key-value pairs: type1 format1 type2 format2 ... or "default" format
+        #[arg(required = true, num_args = 2..)]
+        pairs: Vec<String>,
+    },
+    /// Add a metadata type to the skip list
+    Skip {
+        /// Metadata type name to skip
+        #[arg(required = true)]
+        type_name: String,
+    },
+    /// Display current configuration
+    Show,
 }
 
 fn main() -> Result<()> {
@@ -211,8 +237,90 @@ fn main() -> Result<()> {
                 init_instructions(&name)?;
             }
         },
+        Commands::Config { action } => match action {
+            ConfigAction::Init => {
+                config_init()?;
+            }
+            ConfigAction::Set { pairs } => {
+                config_set(&pairs)?;
+            }
+            ConfigAction::Skip { type_name } => {
+                config_skip(&type_name)?;
+            }
+            ConfigAction::Show => {
+                config_show()?;
+            }
+        },
     }
 
+    Ok(())
+}
+
+fn config_init() -> Result<()> {
+    let entries = manifest::metadata_info_for_config();
+    let cfg = config::SfCompactConfig::with_smart_defaults(&entries);
+    let path = config::save_config_to_dir(&cfg, &std::env::current_dir()?)?;
+    println!("Created {}", path.display());
+    Ok(())
+}
+
+fn config_set(pairs: &[String]) -> Result<()> {
+    if !pairs.len().is_multiple_of(2) {
+        anyhow::bail!(
+            "Expected key-value pairs (even number of arguments), got {}",
+            pairs.len()
+        );
+    }
+
+    let cwd = std::env::current_dir()?;
+    let config_path = config::find_config_file(&cwd).unwrap_or_else(|| cwd.join(".sfcompact.yaml"));
+
+    let mut cfg = if config_path.exists() {
+        config::load_config_from(&config_path)?
+    } else {
+        config::SfCompactConfig::default()
+    };
+
+    for chunk in pairs.chunks(2) {
+        let key = &chunk[0];
+        let value = &chunk[1];
+
+        if key == "default" {
+            cfg.default_format = value.clone();
+        } else {
+            cfg.formats.insert(key.clone(), value.clone());
+        }
+    }
+
+    config::save_config(&cfg, &config_path)?;
+    println!("Updated {}", config_path.display());
+    Ok(())
+}
+
+fn config_skip(type_name: &str) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config_path = config::find_config_file(&cwd).unwrap_or_else(|| cwd.join(".sfcompact.yaml"));
+
+    let mut cfg = if config_path.exists() {
+        config::load_config_from(&config_path)?
+    } else {
+        config::SfCompactConfig::default()
+    };
+
+    if !cfg.skip.contains(&type_name.to_string()) {
+        cfg.skip.push(type_name.to_string());
+    }
+
+    config::save_config(&cfg, &config_path)?;
+    println!("Updated {}", config_path.display());
+    Ok(())
+}
+
+fn config_show() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let cfg = config::load_config(&cwd)?;
+    let yaml = serde_yaml::to_string(&cfg).context("Failed to serialize config")?;
+    print!("{yaml}");
     Ok(())
 }
 
