@@ -371,10 +371,10 @@ fn config_init_creates_file() {
         content.contains("default_format"),
         "config should contain default_format"
     );
-    // Flow is order-sensitive, should be json
+    // Flow is order-sensitive, should be yaml-ordered
     assert!(
-        content.contains("Flow: json") || content.contains("Flow: json"),
-        "Flow should be set to json in smart defaults, got: {content}"
+        content.contains("Flow: yaml-ordered"),
+        "Flow should be set to yaml-ordered in smart defaults, got: {content}"
     );
 }
 
@@ -608,6 +608,10 @@ fn manifest_includes_order_sensitive() {
     assert!(
         formats.contains(&serde_json::json!("yaml")),
         "supported_formats should include yaml"
+    );
+    assert!(
+        formats.contains(&serde_json::json!("yaml-ordered")),
+        "supported_formats should include yaml-ordered"
     );
     assert!(
         formats.contains(&serde_json::json!("json")),
@@ -928,6 +932,276 @@ fn numeric_strings_preserved_json_roundtrip() {
         content.contains(">0012<"),
         "leading-zero string 0012 was corrupted in JSON roundtrip: {content}"
     );
+}
+
+// ─── YAML Ordered format tests ──────────────────────────────────
+
+#[test]
+fn pack_yaml_ordered_format() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "yaml-ordered",
+        ])
+        .output()
+        .expect("failed to run pack with --format yaml-ordered");
+    assert!(
+        output.status.success(),
+        "pack --format yaml-ordered failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Packed 5 files"),
+        "unexpected pack output: {stdout}"
+    );
+
+    // Verify .yaml files were created (yaml-ordered still uses .yaml extension)
+    let yaml_profile = packed
+        .path()
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
+    assert!(
+        yaml_profile.exists(),
+        "YAML profile file not created for yaml-ordered format"
+    );
+
+    // Verify it contains _children key (ordered format)
+    let flow_yaml = packed
+        .path()
+        .join("force-app/main/default/flows/Case_Assignment.flow-meta.yaml");
+    assert!(flow_yaml.exists(), "YAML flow file not created");
+    let content = std::fs::read_to_string(&flow_yaml).unwrap();
+    assert!(
+        content.contains("_children:"),
+        "yaml-ordered output should contain _children key, got: {content}"
+    );
+    assert!(
+        content.contains("_tag: Flow"),
+        "yaml-ordered output should contain _tag, got: {content}"
+    );
+}
+
+#[test]
+fn yaml_ordered_roundtrip() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Pack as yaml-ordered
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "yaml-ordered",
+        ])
+        .output()
+        .expect("failed to pack as yaml-ordered");
+    assert!(
+        output.status.success(),
+        "pack yaml-ordered failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Unpack back to XML
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to unpack yaml-ordered");
+    assert!(
+        output.status.success(),
+        "unpack yaml-ordered failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Unpacked 5 files"),
+        "unexpected unpack output: {stdout}"
+    );
+
+    // Verify restored XML
+    let xml_profile = unpacked
+        .path()
+        .join("force-app/main/default/profiles/Admin.profile-meta.xml");
+    assert!(
+        xml_profile.exists(),
+        "XML profile not restored from yaml-ordered"
+    );
+
+    let content = std::fs::read_to_string(&xml_profile).unwrap();
+    assert!(
+        content.contains("<Profile"),
+        "restored XML missing Profile tag"
+    );
+    assert!(
+        content.contains("http://soap.sforce.com/2006/04/metadata"),
+        "restored XML missing namespace"
+    );
+}
+
+#[test]
+fn yaml_ordered_preserves_element_order() {
+    // The flow fixture has two <assignments> elements in a specific order.
+    // yaml-ordered format should preserve that order via _children arrays.
+    let flow_xml = std::fs::read_to_string(
+        "tests/fixtures/force-app/main/default/flows/Case_Assignment.flow-meta.xml",
+    )
+    .unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let xml_path = dir.path().join("Case_Assignment.flow-meta.xml");
+    std::fs::write(&xml_path, &flow_xml).unwrap();
+
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Pack as yaml-ordered
+    let output = sf_compact()
+        .args([
+            "pack",
+            xml_path.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "yaml-ordered",
+        ])
+        .output()
+        .expect("failed to pack flow as yaml-ordered");
+    assert!(output.status.success(), "pack yaml-ordered failed");
+
+    // Verify YAML has _children
+    let yaml_path = packed.path().join("Case_Assignment.flow-meta.yaml");
+    assert!(yaml_path.exists(), "YAML flow file not created");
+    let yaml_content = std::fs::read_to_string(&yaml_path).unwrap();
+    assert!(
+        yaml_content.contains("_children:"),
+        "yaml-ordered should have _children"
+    );
+
+    // Roundtrip back to XML and verify order
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to unpack");
+    assert!(output.status.success());
+
+    let restored = unpacked.path().join("Case_Assignment.flow-meta.xml");
+    let restored_content = std::fs::read_to_string(&restored).unwrap();
+
+    let high_assignment_pos = restored_content
+        .find("<name>High_Priority_Assignment</name>")
+        .expect("High_Priority_Assignment not found");
+    let low_assignment_pos = restored_content
+        .find("<name>Low_Priority_Assignment</name>")
+        .expect("Low_Priority_Assignment not found");
+    assert!(
+        high_assignment_pos < low_assignment_pos,
+        "Element order not preserved in yaml-ordered roundtrip: High at {}, Low at {}",
+        high_assignment_pos,
+        low_assignment_pos
+    );
+}
+
+#[test]
+fn config_init_uses_yaml_ordered_for_order_sensitive() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = sf_compact()
+        .args(["config", "init"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config init");
+    assert!(output.status.success());
+
+    let content = std::fs::read_to_string(dir.path().join(".sfcompact.yaml")).unwrap();
+
+    // Order-sensitive types should use yaml-ordered
+    assert!(
+        content.contains("Flow: yaml-ordered"),
+        "Flow should be yaml-ordered, got: {content}"
+    );
+    assert!(
+        content.contains("FlexiPage: yaml-ordered"),
+        "FlexiPage should be yaml-ordered, got: {content}"
+    );
+    assert!(
+        content.contains("Layout: yaml-ordered"),
+        "Layout should be yaml-ordered, got: {content}"
+    );
+}
+
+#[test]
+fn unpack_handles_both_yaml_formats() {
+    let dir = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Create a grouped YAML file (standard format)
+    let grouped_yaml = "_tag: ApexClass\n_ns: http://soap.sforce.com/2006/04/metadata\napiVersion: '59.0'\nstatus: Active\n";
+    std::fs::write(dir.path().join("Grouped.cls-meta.yaml"), grouped_yaml).unwrap();
+
+    // Create an ordered YAML file (yaml-ordered format with _children)
+    let ordered_yaml = r#"_tag: ApexClass
+_ns: http://soap.sforce.com/2006/04/metadata
+_children:
+- apiVersion: '59.0'
+- status: Active
+"#;
+    std::fs::write(dir.path().join("Ordered.cls-meta.yaml"), ordered_yaml).unwrap();
+
+    let output = sf_compact()
+        .args([
+            "unpack",
+            dir.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to unpack");
+    assert!(
+        output.status.success(),
+        "unpack failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Unpacked 2 files"),
+        "should unpack 2 files, got: {stdout}"
+    );
+
+    // Verify both were restored correctly
+    let grouped_xml = unpacked.path().join("Grouped.cls-meta.xml");
+    assert!(grouped_xml.exists(), "Grouped XML not restored");
+    let content = std::fs::read_to_string(&grouped_xml).unwrap();
+    assert!(content.contains("<ApexClass"), "grouped XML missing tag");
+    assert!(content.contains(">59.0<"), "grouped XML missing apiVersion");
+
+    let ordered_xml = unpacked.path().join("Ordered.cls-meta.xml");
+    assert!(ordered_xml.exists(), "Ordered XML not restored");
+    let content = std::fs::read_to_string(&ordered_xml).unwrap();
+    assert!(content.contains("<ApexClass"), "ordered XML missing tag");
+    assert!(content.contains(">59.0<"), "ordered XML missing apiVersion");
 }
 
 /// Helper to recursively copy a directory.

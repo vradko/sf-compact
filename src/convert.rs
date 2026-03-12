@@ -369,6 +369,10 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             let json = json_writer::xml_to_json(&node)
                 .with_context(|| format!("Converting {} to JSON", xml_path.display()))?;
             (json, "json")
+        } else if format == "yaml-ordered" {
+            let yaml = yaml_writer::xml_to_yaml_ordered(&node)
+                .with_context(|| format!("Converting {} to YAML (ordered)", xml_path.display()))?;
+            (yaml, "yaml")
         } else {
             let yaml = yaml_writer::xml_to_yaml(&node)
                 .with_context(|| format!("Converting {} to YAML", xml_path.display()))?;
