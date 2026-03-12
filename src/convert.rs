@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-const SF_META_EXTENSIONS: &[&str] = &[
+pub const SF_META_EXTENSIONS: &[&str] = &[
     "profile-meta.xml",
     "permissionset-meta.xml",
     "permissionsetgroup-meta.xml",
@@ -57,6 +57,8 @@ pub struct ConvertStats {
     pub files_processed: usize,
     pub original_bytes: u64,
     pub compact_bytes: u64,
+    pub original_tokens: usize,
+    pub compact_tokens: usize,
     pub by_type: IndexMap<String, TypeStats>,
 }
 
@@ -64,6 +66,8 @@ pub struct TypeStats {
     pub count: usize,
     pub original_bytes: u64,
     pub compact_bytes: u64,
+    pub original_tokens: usize,
+    pub compact_tokens: usize,
 }
 
 impl TypeStats {
@@ -73,6 +77,13 @@ impl TypeStats {
         }
         (1.0 - self.compact_bytes as f64 / self.original_bytes as f64) * 100.0
     }
+
+    pub fn token_reduction_percent(&self) -> f64 {
+        if self.original_tokens == 0 {
+            return 0.0;
+        }
+        (1.0 - self.compact_tokens as f64 / self.original_tokens as f64) * 100.0
+    }
 }
 
 impl ConvertStats {
@@ -81,6 +92,8 @@ impl ConvertStats {
             files_processed: 0,
             original_bytes: 0,
             compact_bytes: 0,
+            original_tokens: 0,
+            compact_tokens: 0,
             by_type: IndexMap::new(),
         }
     }
@@ -92,10 +105,23 @@ impl ConvertStats {
         (1.0 - self.compact_bytes as f64 / self.original_bytes as f64) * 100.0
     }
 
-    pub fn tokens_saved(&self) -> u64 {
-        // ~4 chars per token approximation
-        (self.original_bytes - self.compact_bytes) / 4
+    pub fn token_reduction_percent(&self) -> f64 {
+        if self.original_tokens == 0 {
+            return 0.0;
+        }
+        (1.0 - self.compact_tokens as f64 / self.original_tokens as f64) * 100.0
     }
+
+    pub fn tokens_saved(&self) -> usize {
+        self.original_tokens.saturating_sub(self.compact_tokens)
+    }
+}
+
+/// Count tokens using tiktoken (cl100k_base, used by GPT-4/4o/Claude).
+fn count_tokens(text: &str) -> usize {
+    use tiktoken_rs::cl100k_base;
+    let bpe = cl100k_base().expect("Failed to load cl100k tokenizer");
+    bpe.encode_with_special_tokens(text).len()
 }
 
 fn is_sf_metadata(path: &Path) -> bool {
@@ -177,6 +203,8 @@ pub fn pack(source: &Path, output: &Path) -> Result<ConvertStats> {
             count: 0,
             original_bytes: 0,
             compact_bytes: 0,
+            original_tokens: 0,
+            compact_tokens: 0,
         });
         type_stats.count += 1;
         type_stats.original_bytes += xml_bytes;
@@ -230,7 +258,7 @@ pub fn unpack(source: &Path, output: &Path) -> Result<ConvertStats> {
     Ok(stats)
 }
 
-/// Stats: analyze without writing
+/// Stats: analyze without writing, with real token counting
 pub fn stats(source: &Path) -> Result<ConvertStats> {
     let files = find_sf_xml_files(source);
     let mut stats = ConvertStats::new();
@@ -239,6 +267,7 @@ pub fn stats(source: &Path) -> Result<ConvertStats> {
         let xml_content =
             fs::read_to_string(xml_path).with_context(|| format!("Reading {}", xml_path.display()))?;
         let xml_bytes = xml_content.len() as u64;
+        let xml_tokens = count_tokens(&xml_content);
 
         let node = xml_parser::parse_xml(&xml_content)
             .with_context(|| format!("Parsing {}", xml_path.display()))?;
@@ -246,20 +275,27 @@ pub fn stats(source: &Path) -> Result<ConvertStats> {
         let yaml = yaml_writer::xml_to_yaml(&node)
             .with_context(|| format!("Converting {}", xml_path.display()))?;
         let yaml_bytes = yaml.len() as u64;
+        let yaml_tokens = count_tokens(&yaml);
 
         let meta_type = metadata_type(xml_path);
         let type_stats = stats.by_type.entry(meta_type).or_insert(TypeStats {
             count: 0,
             original_bytes: 0,
             compact_bytes: 0,
+            original_tokens: 0,
+            compact_tokens: 0,
         });
         type_stats.count += 1;
         type_stats.original_bytes += xml_bytes;
         type_stats.compact_bytes += yaml_bytes;
+        type_stats.original_tokens += xml_tokens;
+        type_stats.compact_tokens += yaml_tokens;
 
         stats.files_processed += 1;
         stats.original_bytes += xml_bytes;
         stats.compact_bytes += yaml_bytes;
+        stats.original_tokens += xml_tokens;
+        stats.compact_tokens += yaml_tokens;
     }
 
     Ok(stats)
