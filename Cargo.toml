@@ -8,6 +8,8 @@ repository = "https://github.com/vradko/sf-compact"
 homepage = "https://github.com/vradko/sf-compact"
 keywords = ["salesforce", "metadata", "yaml", "ai", "token-optimization"]
 categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+exclude = ["tests/", ".github/", "target/"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
