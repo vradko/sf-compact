@@ -292,7 +292,11 @@ pub fn metadata_info_for_config() -> Vec<(String, bool, Vec<String>)> {
             result.push((
                 t.meta_type.to_string(),
                 t.order_sensitive,
-                vec!["yaml".to_string(), "json".to_string()],
+                vec![
+                    "yaml".to_string(),
+                    "yaml-ordered".to_string(),
+                    "json".to_string(),
+                ],
             ));
         }
     }

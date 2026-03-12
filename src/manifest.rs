@@ -28,7 +28,11 @@ pub fn build_manifest() -> Manifest {
                 meta_type: meta_type.to_string(),
                 category: category.to_string(),
                 order_sensitive,
-                supported_formats: vec!["yaml".to_string(), "json".to_string()],
+                supported_formats: vec![
+                    "yaml".to_string(),
+                    "yaml-ordered".to_string(),
+                    "json".to_string(),
+                ],
             }
         })
         .collect();

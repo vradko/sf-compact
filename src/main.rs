@@ -39,7 +39,7 @@ enum Commands {
         #[arg(long)]
         include: Option<String>,
 
-        /// Output format override (yaml or json). Takes precedence over config.
+        /// Output format override (yaml, yaml-ordered, or json). Takes precedence over config.
         #[arg(long)]
         format: Option<String>,
     },
