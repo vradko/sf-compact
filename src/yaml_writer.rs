@@ -215,21 +215,14 @@ fn simple_node_to_value(node: &XmlNode) -> Value {
     Value::Mapping(map)
 }
 
-/// Parse text into appropriate YAML type (bool, int, float, or string).
+/// Parse text into appropriate YAML type.
+/// Only converts "true"/"false" to bools. All other values stay as strings
+/// to preserve formatting (leading zeros, decimal notation, etc.).
 fn parse_smart_value(text: &str) -> Value {
     match text {
         "true" => Value::Bool(true),
         "false" => Value::Bool(false),
-        "" => Value::String(String::new()),
-        _ => {
-            if let Ok(n) = text.parse::<i64>() {
-                Value::Number(serde_yaml::Number::from(n))
-            } else if let Ok(f) = text.parse::<f64>() {
-                Value::Number(serde_yaml::Number::from(f))
-            } else {
-                Value::String(text.to_string())
-            }
-        }
+        _ => Value::String(text.to_string()),
     }
 }
 

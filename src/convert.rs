@@ -186,26 +186,23 @@ fn find_sf_xml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
     files
 }
 
+fn is_sf_compact_yaml(path: &Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    name.ends_with("-meta.yaml")
+}
+
 fn find_yaml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
     for path in &opts.paths {
         if path.is_file() {
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext == "yaml" || ext == "yml" {
+            if is_sf_compact_yaml(path) {
                 files.push(path.clone());
             }
         } else if path.is_dir() {
             for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
-                if entry.file_type().is_file() {
-                    let ext = entry
-                        .path()
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("");
-                    if ext == "yaml" || ext == "yml" {
-                        files.push(entry.path().to_path_buf());
-                    }
+                if entry.file_type().is_file() && is_sf_compact_yaml(entry.path()) {
+                    files.push(entry.path().to_path_buf());
                 }
             }
         }
@@ -221,27 +218,31 @@ fn find_yaml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
     files
 }
 
-/// Simple glob matching: supports * and ** patterns.
+/// Glob matching using the `glob` crate's Pattern.
 fn glob_match(pattern: &str, path: &str) -> bool {
-    // Simple: check if pattern appears as substring, or do basic wildcard
-    if pattern.contains('*') {
-        // Convert glob to simple check: "profiles/**" → contains "profiles/"
-        let prefix = pattern.trim_end_matches("/**").trim_end_matches("/*");
-        if prefix != pattern {
-            return path.contains(prefix);
+    let options = glob::MatchOptions {
+        case_sensitive: true,
+        require_literal_separator: false,
+        require_literal_leading_dot: false,
+    };
+    match glob::Pattern::new(pattern) {
+        Ok(p) => {
+            // Try matching against the full path and also just the filename
+            p.matches_with(path, options)
+                || Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|name| p.matches_with(name, options))
         }
-        // "*.profile-meta.xml" → ends with ".profile-meta.xml"
-        let suffix = pattern.trim_start_matches('*');
-        if suffix != pattern {
-            return path.ends_with(suffix);
-        }
+        Err(_) => path.contains(pattern),
     }
-    // Fallback: substring match
-    path.contains(pattern)
 }
 
 /// Determine the common root directory from opts for relative path display.
 fn common_root(opts: &ConvertOpts) -> PathBuf {
+    if opts.paths.is_empty() {
+        return PathBuf::from(".");
+    }
     if opts.paths.len() == 1 {
         let p = &opts.paths[0];
         if p.is_dir() {
@@ -249,13 +250,65 @@ fn common_root(opts: &ConvertOpts) -> PathBuf {
         }
         return p.parent().unwrap_or(p).to_path_buf();
     }
-    PathBuf::from(".")
+    // Find longest common ancestor of all paths
+    let dirs: Vec<PathBuf> = opts
+        .paths
+        .iter()
+        .map(|p| {
+            let abs = if p.is_absolute() {
+                p.clone()
+            } else {
+                std::env::current_dir().unwrap_or_default().join(p)
+            };
+            if abs.is_dir() {
+                abs
+            } else {
+                abs.parent().unwrap_or(&abs).to_path_buf()
+            }
+        })
+        .collect();
+
+    let first: Vec<_> = dirs[0].components().collect();
+    let mut prefix_len = first.len();
+    for path in &dirs[1..] {
+        let comps: Vec<_> = path.components().collect();
+        prefix_len = prefix_len.min(
+            first
+                .iter()
+                .zip(comps.iter())
+                .take_while(|(a, b)| a == b)
+                .count(),
+        );
+    }
+    if prefix_len == 0 {
+        return PathBuf::from("/");
+    }
+    first[..prefix_len].iter().collect()
+}
+
+/// Compute relative path safely, falling back to filename if strip_prefix fails.
+fn safe_relative(path: &Path, root: &Path) -> PathBuf {
+    path.strip_prefix(root)
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|_| {
+            // Try with canonicalized paths
+            let canon_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+            let canon_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+            canon_path
+                .strip_prefix(&canon_root)
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|_| {
+                    // Last resort: use just the filename
+                    path.file_name()
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| path.to_path_buf())
+                })
+        })
 }
 
 fn yaml_path_for_xml(xml_path: &Path, source_root: &Path, output_root: &Path) -> PathBuf {
-    let relative = xml_path.strip_prefix(source_root).unwrap_or(xml_path);
+    let relative = safe_relative(xml_path, source_root);
     let mut out = output_root.join(relative);
-    // Replace .xml extension with .yaml
     let name = out
         .file_name()
         .and_then(|n| n.to_str())
@@ -266,7 +319,7 @@ fn yaml_path_for_xml(xml_path: &Path, source_root: &Path, output_root: &Path) ->
 }
 
 fn xml_path_for_yaml(yaml_path: &Path, source_root: &Path, output_root: &Path) -> PathBuf {
-    let relative = yaml_path.strip_prefix(source_root).unwrap_or(yaml_path);
+    let relative = safe_relative(yaml_path, source_root);
     let mut out = output_root.join(relative);
     let name = out
         .file_name()
@@ -277,8 +330,18 @@ fn xml_path_for_yaml(yaml_path: &Path, source_root: &Path, output_root: &Path) -
     out
 }
 
+fn validate_paths(paths: &[PathBuf]) -> Result<()> {
+    for p in paths {
+        if !p.exists() {
+            anyhow::bail!("Path not found: {}", p.display());
+        }
+    }
+    Ok(())
+}
+
 /// Pack: XML → YAML
 pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
+    validate_paths(&opts.paths)?;
     let files = find_sf_xml_files_from_opts(opts);
     let root = common_root(opts);
     let mut stats = ConvertStats::new();
@@ -309,6 +372,7 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
 
 /// Unpack: YAML → XML
 pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
+    validate_paths(&opts.paths)?;
     let files = find_yaml_files_from_opts(opts);
     let root = common_root(opts);
     let mut stats = ConvertStats::new();
@@ -338,6 +402,7 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
 
 /// Stats: preview without writing, with real token counting.
 pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
+    validate_paths(&opts.paths)?;
     let files = find_sf_xml_files_from_opts(opts);
     let root = common_root(opts);
     let mut stats = ConvertStats::new();
