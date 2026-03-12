@@ -615,6 +615,321 @@ fn manifest_includes_order_sensitive() {
     );
 }
 
+// ─── JSON format tests ──────────────────────────────────────────
+
+#[test]
+fn pack_json_format() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run pack with --format json");
+    assert!(
+        output.status.success(),
+        "pack --format json failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Packed 5 files"),
+        "unexpected pack output: {stdout}"
+    );
+
+    // Verify .json files were created (not .yaml)
+    let json_profile = packed
+        .path()
+        .join("force-app/main/default/profiles/Admin.profile-meta.json");
+    assert!(
+        json_profile.exists(),
+        "JSON profile file not created at {}",
+        json_profile.display()
+    );
+
+    // Verify it's valid JSON
+    let content = std::fs::read_to_string(&json_profile).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&content).expect("Output is not valid JSON");
+    assert_eq!(
+        parsed.get("_tag").and_then(|v| v.as_str()),
+        Some("Profile"),
+        "JSON should have _tag: Profile"
+    );
+}
+
+#[test]
+fn json_roundtrip() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Pack as JSON
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to pack as JSON");
+    assert!(
+        output.status.success(),
+        "pack json failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Unpack back to XML
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to unpack JSON");
+    assert!(
+        output.status.success(),
+        "unpack JSON failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Unpacked 5 files"),
+        "unexpected unpack output: {stdout}"
+    );
+
+    // Verify restored XML
+    let xml_profile = unpacked
+        .path()
+        .join("force-app/main/default/profiles/Admin.profile-meta.xml");
+    assert!(xml_profile.exists(), "XML profile not restored from JSON");
+
+    let content = std::fs::read_to_string(&xml_profile).unwrap();
+    assert!(
+        content.contains("<Profile"),
+        "restored XML missing Profile tag"
+    );
+    assert!(
+        content.contains("http://soap.sforce.com/2006/04/metadata"),
+        "restored XML missing namespace"
+    );
+}
+
+#[test]
+fn json_preserves_element_order() {
+    // The flow fixture has two <assignments> elements in a specific order.
+    // JSON format should preserve that order via _children arrays.
+    let flow_xml = std::fs::read_to_string(
+        "tests/fixtures/force-app/main/default/flows/Case_Assignment.flow-meta.xml",
+    )
+    .unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let xml_path = dir.path().join("Case_Assignment.flow-meta.xml");
+    std::fs::write(&xml_path, &flow_xml).unwrap();
+
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Pack as JSON
+    let output = sf_compact()
+        .args([
+            "pack",
+            xml_path.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to pack flow as JSON");
+    assert!(output.status.success(), "pack json failed");
+
+    // Verify JSON has _children array preserving order
+    let json_path = packed.path().join("Case_Assignment.flow-meta.json");
+    assert!(json_path.exists(), "JSON flow file not created");
+    let json_content = std::fs::read_to_string(&json_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json_content).unwrap();
+
+    // _children should be an array
+    let children = parsed
+        .get("_children")
+        .and_then(|v| v.as_array())
+        .expect("JSON should have _children array");
+
+    // Find the assignments in order — High_Priority_Assignment should come before Low_Priority_Assignment
+    let assignment_names: Vec<&str> = children
+        .iter()
+        .filter(|c| c.get("_tag").and_then(|t| t.as_str()) == Some("assignments"))
+        .filter_map(|c| {
+            c.get("_children")
+                .and_then(|ch| ch.as_array())
+                .and_then(|arr| {
+                    arr.iter().find_map(|item| {
+                        if item.get("_tag").and_then(|t| t.as_str()) == Some("name") {
+                            item.get("_text").and_then(|v| v.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                })
+        })
+        .collect();
+
+    assert_eq!(
+        assignment_names,
+        vec!["High_Priority_Assignment", "Low_Priority_Assignment"],
+        "JSON should preserve element order"
+    );
+
+    // Roundtrip back to XML and verify order
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to unpack");
+    assert!(output.status.success());
+
+    let restored = unpacked.path().join("Case_Assignment.flow-meta.xml");
+    let restored_content = std::fs::read_to_string(&restored).unwrap();
+
+    // Verify that the <assignments> blocks appear in the correct order.
+    // We look for <name>High_Priority_Assignment</name> and <name>Low_Priority_Assignment</name>
+    // within the assignments context (not the defaultConnector references).
+    let high_assignment_pos = restored_content
+        .find("<name>High_Priority_Assignment</name>")
+        .expect("High_Priority_Assignment assignment not found");
+    let low_assignment_pos = restored_content
+        .find("<name>Low_Priority_Assignment</name>")
+        .expect("Low_Priority_Assignment assignment not found");
+    assert!(
+        high_assignment_pos < low_assignment_pos,
+        "Element order not preserved in JSON roundtrip: High at {}, Low at {}",
+        high_assignment_pos,
+        low_assignment_pos
+    );
+}
+
+#[test]
+fn pack_uses_config_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let packed = tempfile::tempdir().unwrap();
+
+    // Create config that sets flow to json (everything else yaml)
+    let config_content = "default_format: yaml\nformats:\n  Flow: json\nskip: []\n";
+    std::fs::write(dir.path().join(".sfcompact.yaml"), config_content).unwrap();
+
+    // Copy test fixtures into the temp dir
+    let fixtures = std::path::Path::new("tests/fixtures");
+    copy_dir_recursive(fixtures, &dir.path().join("tests/fixtures"));
+
+    let output = sf_compact()
+        .args([
+            "pack",
+            dir.path().join("tests/fixtures").to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run pack with config format");
+    assert!(
+        output.status.success(),
+        "pack failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Flow should be .json
+    let flow_json = packed
+        .path()
+        .join("force-app/main/default/flows/Case_Assignment.flow-meta.json");
+    assert!(
+        flow_json.exists(),
+        "Flow should be packed as .json per config"
+    );
+
+    // Profile should still be .yaml
+    let profile_yaml = packed
+        .path()
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
+    assert!(
+        profile_yaml.exists(),
+        "Profile should still be .yaml per default config"
+    );
+}
+
+#[test]
+fn numeric_strings_preserved_json_roundtrip() {
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>59.0</apiVersion>
+    <status>0012</status>
+</ApexClass>"#;
+
+    let dir = tempfile::tempdir().unwrap();
+    let xml_path = dir.path().join("Test.cls-meta.xml");
+    std::fs::write(&xml_path, xml).unwrap();
+
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Pack as JSON
+    let output = sf_compact()
+        .args([
+            "pack",
+            xml_path.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to pack as JSON");
+    assert!(output.status.success(), "pack json failed");
+
+    // Unpack
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to unpack");
+    assert!(output.status.success(), "unpack failed");
+
+    let restored = unpacked.path().join("Test.cls-meta.xml");
+    assert!(restored.exists(), "restored file not found");
+    let content = std::fs::read_to_string(&restored).unwrap();
+    assert!(
+        content.contains(">59.0<"),
+        "apiVersion 59.0 was corrupted in JSON roundtrip: {content}"
+    );
+    assert!(
+        content.contains(">0012<"),
+        "leading-zero string 0012 was corrupted in JSON roundtrip: {content}"
+    );
+}
+
 /// Helper to recursively copy a directory.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
     std::fs::create_dir_all(dst).unwrap();
