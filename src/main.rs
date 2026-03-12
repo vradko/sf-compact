@@ -22,29 +22,45 @@ struct Cli {
 enum Commands {
     /// Convert Salesforce XML metadata to compact YAML
     Pack {
-        /// Source directory containing Salesforce metadata XML files
+        /// Source path: directory or specific file(s)
         #[arg(default_value = "force-app")]
-        source: PathBuf,
+        source: Vec<PathBuf>,
 
         /// Output directory for compact YAML files
         #[arg(short, long, default_value = ".sf-compact")]
         output: PathBuf,
+
+        /// Only include files matching this glob pattern (e.g. "profiles/**", "*.profile-meta.xml")
+        #[arg(long)]
+        include: Option<String>,
     },
     /// Convert compact YAML back to Salesforce XML metadata (lossless)
     Unpack {
-        /// Source directory containing compact YAML files
+        /// Source path: directory or specific file(s)
         #[arg(default_value = ".sf-compact")]
-        source: PathBuf,
+        source: Vec<PathBuf>,
 
         /// Output directory for restored XML files
         #[arg(short, long, default_value = "force-app")]
         output: PathBuf,
+
+        /// Only include files matching this glob pattern
+        #[arg(long)]
+        include: Option<String>,
     },
-    /// Show stats: how many tokens/bytes saved
+    /// Preview token/byte savings without writing files
     Stats {
-        /// Source directory containing Salesforce metadata XML files
+        /// Source path: directory or specific file(s)
         #[arg(default_value = "force-app")]
-        source: PathBuf,
+        source: Vec<PathBuf>,
+
+        /// Only include files matching this glob pattern
+        #[arg(long)]
+        include: Option<String>,
+
+        /// Show per-file breakdown
+        #[arg(long)]
+        files: bool,
     },
     /// Start MCP (Model Context Protocol) server over stdio
     McpServe,
@@ -73,8 +89,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Pack { source, output } => {
-            let stats = convert::pack(&source, &output)?;
+        Commands::Pack { source, output, include } => {
+            let opts = convert::ConvertOpts { paths: source, include, };
+            let stats = convert::pack(&opts, &output)?;
             println!(
                 "Packed {} files: {} → {} bytes ({:.1}% reduction, ~{} tokens saved)",
                 stats.files_processed,
@@ -84,38 +101,52 @@ fn main() -> Result<()> {
                 stats.tokens_saved(),
             );
         }
-        Commands::Unpack { source, output } => {
-            let stats = convert::unpack(&source, &output)?;
+        Commands::Unpack { source, output, include } => {
+            let opts = convert::ConvertOpts { paths: source, include, };
+            let stats = convert::unpack(&opts, &output)?;
             println!("Unpacked {} files", stats.files_processed);
         }
-        Commands::Stats { source } => {
-            let stats = convert::stats(&source)?;
-            println!("Salesforce metadata analysis (tokenizer: cl100k_base):");
+        Commands::Stats { source, include, files: show_files } => {
+            let opts = convert::ConvertOpts { paths: source, include, };
+            let stats = convert::stats(&opts)?;
+
+            println!("Preview: what sf-compact pack would produce");
+            println!("Tokenizer: cl100k_base (GPT-4 / Claude)");
             println!();
-            println!("  Files:             {}", stats.files_processed);
-            println!("  XML bytes:         {}", stats.original_bytes);
-            println!("  YAML bytes:        {}", stats.compact_bytes);
-            println!("  Byte reduction:    {:.1}%", stats.reduction_percent());
+            println!("  {:>40}    {:>10}    {:>10}    {:>8}", "", "XML (now)", "YAML (after)", "savings");
+            println!("  {}", "-".repeat(80));
+            println!("  {:>40}    {:>10}    {:>10}    {:>7.1}%",
+                "Bytes", stats.original_bytes, stats.compact_bytes, stats.reduction_percent());
+            println!("  {:>40}    {:>10}    {:>10}    {:>7.1}%",
+                "Tokens", stats.original_tokens, stats.compact_tokens, stats.token_reduction_percent());
             println!();
-            println!("  XML tokens:        {}", stats.original_tokens);
-            println!("  YAML tokens:       {}", stats.compact_tokens);
-            println!("  Token reduction:   {:.1}%", stats.token_reduction_percent());
-            println!("  Tokens saved:      {}", stats.tokens_saved());
+            println!("  Would save {} tokens across {} files",
+                stats.tokens_saved(), stats.files_processed);
             println!();
-            println!("  {:<20} {:>5} files  {:>8} → {:>8} tokens  ({:>5.1}% tokens)  {:>8} → {:>8} bytes",
-                "Type", "", "XML", "YAML", "", "XML", "YAML");
-            println!("  {}", "-".repeat(100));
-            for (meta_type, ts) in &stats.by_type {
-                println!(
-                    "  {:<20} {:>5} files  {:>8} → {:>8} tokens  ({:>5.1}%)        {:>8} → {:>8} bytes",
-                    meta_type,
-                    ts.count,
-                    ts.original_tokens,
-                    ts.compact_tokens,
-                    ts.token_reduction_percent(),
-                    ts.original_bytes,
-                    ts.compact_bytes,
-                );
+
+            if !stats.by_type.is_empty() {
+                println!("  By metadata type:");
+                println!("  {:<20} {:>5}    {:>8} → {:>8} tokens    {:>6}",
+                    "type", "files", "now", "after", "saved");
+                println!("  {}", "-".repeat(70));
+                for (meta_type, ts) in &stats.by_type {
+                    println!(
+                        "  {:<20} {:>5}    {:>8} → {:>8} tokens    {:>5.1}%",
+                        meta_type, ts.count, ts.original_tokens, ts.compact_tokens,
+                        ts.token_reduction_percent(),
+                    );
+                }
+                println!();
+            }
+
+            if show_files {
+                println!("  Per file:");
+                println!("  {:<60} {:>8} → {:>8} tokens", "file", "now", "after");
+                println!("  {}", "-".repeat(90));
+                for fi in &stats.per_file {
+                    println!("  {:<60} {:>8} → {:>8} tokens",
+                        fi.relative_path, fi.original_tokens, fi.compact_tokens);
+                }
             }
         }
         Commands::McpServe => {

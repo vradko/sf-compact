@@ -181,7 +181,7 @@ fn call_pack(args: &Value) -> Result<Value> {
         .and_then(|s| s.as_str())
         .unwrap_or(".sf-compact");
 
-    let stats = convert::pack(Path::new(source), Path::new(output))?;
+    let stats = convert::pack_path(Path::new(source), Path::new(output))?;
 
     let text = format!(
         "Packed {} files: {} -> {} bytes ({:.1}% reduction, ~{} tokens saved)",
@@ -207,7 +207,7 @@ fn call_unpack(args: &Value) -> Result<Value> {
         .and_then(|s| s.as_str())
         .unwrap_or("force-app");
 
-    let stats = convert::unpack(Path::new(source), Path::new(output))?;
+    let stats = convert::unpack_path(Path::new(source), Path::new(output))?;
 
     let text = format!("Unpacked {} files", stats.files_processed);
 
@@ -222,7 +222,7 @@ fn call_stats(args: &Value) -> Result<Value> {
         .and_then(|s| s.as_str())
         .unwrap_or("force-app");
 
-    let stats = convert::stats(Path::new(source))?;
+    let stats = convert::stats_path(Path::new(source))?;
 
     let mut text = format!(
         "Files: {}\nXML bytes: {}\nYAML bytes: {}\nByte reduction: {:.1}%\nXML tokens: {}\nYAML tokens: {}\nToken reduction: {:.1}%\nTokens saved: {}",

@@ -53,6 +53,20 @@ pub const SF_META_EXTENSIONS: &[&str] = &[
     "duplicateRule-meta.xml",
 ];
 
+/// Options for selecting which files to process.
+pub struct ConvertOpts {
+    /// One or more paths (files or directories).
+    pub paths: Vec<PathBuf>,
+    /// Optional glob filter (e.g. "profiles/**", "*.flow-meta.xml").
+    pub include: Option<String>,
+}
+
+pub struct FileStats {
+    pub relative_path: String,
+    pub original_tokens: usize,
+    pub compact_tokens: usize,
+}
+
 pub struct ConvertStats {
     pub files_processed: usize,
     pub original_bytes: u64,
@@ -60,6 +74,7 @@ pub struct ConvertStats {
     pub original_tokens: usize,
     pub compact_tokens: usize,
     pub by_type: IndexMap<String, TypeStats>,
+    pub per_file: Vec<FileStats>,
 }
 
 pub struct TypeStats {
@@ -95,6 +110,7 @@ impl ConvertStats {
             original_tokens: 0,
             compact_tokens: 0,
             by_type: IndexMap::new(),
+            per_file: Vec::new(),
         }
     }
 
@@ -141,13 +157,94 @@ fn metadata_type(path: &Path) -> String {
     "unknown".to_string()
 }
 
-fn find_sf_xml_files(dir: &Path) -> Vec<PathBuf> {
-    WalkDir::new(dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && is_sf_metadata(e.path()))
-        .map(|e| e.path().to_path_buf())
-        .collect()
+fn find_sf_xml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+
+    for path in &opts.paths {
+        if path.is_file() {
+            if is_sf_metadata(path) {
+                files.push(path.clone());
+            }
+        } else if path.is_dir() {
+            for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+                if entry.file_type().is_file() && is_sf_metadata(entry.path()) {
+                    files.push(entry.path().to_path_buf());
+                }
+            }
+        }
+    }
+
+    // Apply glob filter if provided
+    if let Some(ref pattern) = opts.include {
+        files.retain(|f| {
+            let name = f.to_string_lossy();
+            glob_match(pattern, &name)
+        });
+    }
+
+    files
+}
+
+fn find_yaml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+
+    for path in &opts.paths {
+        if path.is_file() {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "yaml" || ext == "yml" {
+                files.push(path.clone());
+            }
+        } else if path.is_dir() {
+            for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+                if entry.file_type().is_file() {
+                    let ext = entry.path().extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if ext == "yaml" || ext == "yml" {
+                        files.push(entry.path().to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(ref pattern) = opts.include {
+        files.retain(|f| {
+            let name = f.to_string_lossy();
+            glob_match(pattern, &name)
+        });
+    }
+
+    files
+}
+
+/// Simple glob matching: supports * and ** patterns.
+fn glob_match(pattern: &str, path: &str) -> bool {
+    // Simple: check if pattern appears as substring, or do basic wildcard
+    if pattern.contains('*') {
+        // Convert glob to simple check: "profiles/**" → contains "profiles/"
+        let prefix = pattern.trim_end_matches("/**").trim_end_matches("/*");
+        if prefix != pattern {
+            return path.contains(prefix);
+        }
+        // "*.profile-meta.xml" → ends with ".profile-meta.xml"
+        let suffix = pattern.trim_start_matches('*');
+        if suffix != pattern {
+            return path.ends_with(suffix);
+        }
+    }
+    // Fallback: substring match
+    path.contains(pattern)
+}
+
+/// Determine the common root directory from opts for relative path display.
+fn common_root(opts: &ConvertOpts) -> PathBuf {
+    if opts.paths.len() == 1 {
+        let p = &opts.paths[0];
+        if p.is_dir() {
+            return p.clone();
+        }
+        return p.parent().unwrap_or(p).to_path_buf();
+    }
+    PathBuf::from(".")
 }
 
 fn yaml_path_for_xml(xml_path: &Path, source_root: &Path, output_root: &Path) -> PathBuf {
@@ -176,8 +273,9 @@ fn xml_path_for_yaml(yaml_path: &Path, source_root: &Path, output_root: &Path) -
 }
 
 /// Pack: XML → YAML
-pub fn pack(source: &Path, output: &Path) -> Result<ConvertStats> {
-    let files = find_sf_xml_files(source);
+pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
+    let files = find_sf_xml_files_from_opts(opts);
+    let root = common_root(opts);
     let mut stats = ConvertStats::new();
 
     for xml_path in &files {
@@ -192,50 +290,25 @@ pub fn pack(source: &Path, output: &Path) -> Result<ConvertStats> {
             .with_context(|| format!("Converting {}", xml_path.display()))?;
         let yaml_bytes = yaml.len() as u64;
 
-        let yaml_path = yaml_path_for_xml(xml_path, source, output);
+        let yaml_path = yaml_path_for_xml(xml_path, &root, output);
         if let Some(parent) = yaml_path.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::write(&yaml_path, &yaml)?;
 
-        let meta_type = metadata_type(xml_path);
-        let type_stats = stats.by_type.entry(meta_type).or_insert(TypeStats {
-            count: 0,
-            original_bytes: 0,
-            compact_bytes: 0,
-            original_tokens: 0,
-            compact_tokens: 0,
-        });
-        type_stats.count += 1;
-        type_stats.original_bytes += xml_bytes;
-        type_stats.compact_bytes += yaml_bytes;
-
-        stats.files_processed += 1;
-        stats.original_bytes += xml_bytes;
-        stats.compact_bytes += yaml_bytes;
+        accumulate_stats(&mut stats, xml_path, &root, xml_bytes, yaml_bytes, 0, 0);
     }
 
     Ok(stats)
 }
 
 /// Unpack: YAML → XML
-pub fn unpack(source: &Path, output: &Path) -> Result<ConvertStats> {
-    let yaml_files: Vec<PathBuf> = WalkDir::new(source)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map_or(false, |ext| ext == "yaml" || ext == "yml")
-        })
-        .map(|e| e.path().to_path_buf())
-        .collect();
-
+pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
+    let files = find_yaml_files_from_opts(opts);
+    let root = common_root(opts);
     let mut stats = ConvertStats::new();
 
-    for yaml_path in &yaml_files {
+    for yaml_path in &files {
         let yaml_content =
             fs::read_to_string(yaml_path).with_context(|| format!("Reading {}", yaml_path.display()))?;
 
@@ -244,7 +317,7 @@ pub fn unpack(source: &Path, output: &Path) -> Result<ConvertStats> {
 
         let xml = xml_parser::to_xml(&node);
 
-        let xml_path = xml_path_for_yaml(yaml_path, source, output);
+        let xml_path = xml_path_for_yaml(yaml_path, &root, output);
         if let Some(parent) = xml_path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -258,9 +331,10 @@ pub fn unpack(source: &Path, output: &Path) -> Result<ConvertStats> {
     Ok(stats)
 }
 
-/// Stats: analyze without writing, with real token counting
-pub fn stats(source: &Path) -> Result<ConvertStats> {
-    let files = find_sf_xml_files(source);
+/// Stats: preview without writing, with real token counting.
+pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
+    let files = find_sf_xml_files_from_opts(opts);
+    let root = common_root(opts);
     let mut stats = ConvertStats::new();
 
     for xml_path in &files {
@@ -277,26 +351,74 @@ pub fn stats(source: &Path) -> Result<ConvertStats> {
         let yaml_bytes = yaml.len() as u64;
         let yaml_tokens = count_tokens(&yaml);
 
-        let meta_type = metadata_type(xml_path);
-        let type_stats = stats.by_type.entry(meta_type).or_insert(TypeStats {
-            count: 0,
-            original_bytes: 0,
-            compact_bytes: 0,
-            original_tokens: 0,
-            compact_tokens: 0,
-        });
-        type_stats.count += 1;
-        type_stats.original_bytes += xml_bytes;
-        type_stats.compact_bytes += yaml_bytes;
-        type_stats.original_tokens += xml_tokens;
-        type_stats.compact_tokens += yaml_tokens;
-
-        stats.files_processed += 1;
-        stats.original_bytes += xml_bytes;
-        stats.compact_bytes += yaml_bytes;
-        stats.original_tokens += xml_tokens;
-        stats.compact_tokens += yaml_tokens;
+        accumulate_stats(&mut stats, xml_path, &root, xml_bytes, yaml_bytes, xml_tokens, yaml_tokens);
     }
 
     Ok(stats)
+}
+
+/// Single-path stats for MCP and backward compatibility.
+pub fn stats_path(source: &Path) -> Result<ConvertStats> {
+    stats(&ConvertOpts {
+        paths: vec![source.to_path_buf()],
+        include: None,
+    })
+}
+
+/// Single-path pack for MCP.
+pub fn pack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
+    pack(
+        &ConvertOpts { paths: vec![source.to_path_buf()], include: None },
+        output,
+    )
+}
+
+/// Single-path unpack for MCP.
+pub fn unpack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
+    unpack(
+        &ConvertOpts { paths: vec![source.to_path_buf()], include: None },
+        output,
+    )
+}
+
+fn accumulate_stats(
+    stats: &mut ConvertStats,
+    xml_path: &Path,
+    root: &Path,
+    xml_bytes: u64,
+    yaml_bytes: u64,
+    xml_tokens: usize,
+    yaml_tokens: usize,
+) {
+    let relative = xml_path
+        .strip_prefix(root)
+        .unwrap_or(xml_path)
+        .to_string_lossy()
+        .to_string();
+
+    let meta_type = metadata_type(xml_path);
+    let type_stats = stats.by_type.entry(meta_type).or_insert(TypeStats {
+        count: 0,
+        original_bytes: 0,
+        compact_bytes: 0,
+        original_tokens: 0,
+        compact_tokens: 0,
+    });
+    type_stats.count += 1;
+    type_stats.original_bytes += xml_bytes;
+    type_stats.compact_bytes += yaml_bytes;
+    type_stats.original_tokens += xml_tokens;
+    type_stats.compact_tokens += yaml_tokens;
+
+    stats.per_file.push(FileStats {
+        relative_path: relative,
+        original_tokens: xml_tokens,
+        compact_tokens: yaml_tokens,
+    });
+
+    stats.files_processed += 1;
+    stats.original_bytes += xml_bytes;
+    stats.compact_bytes += yaml_bytes;
+    stats.original_tokens += xml_tokens;
+    stats.compact_tokens += yaml_tokens;
 }
