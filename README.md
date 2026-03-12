@@ -1,6 +1,6 @@
 # sf-compact
 
-Convert Salesforce metadata XML to AI-friendly YAML and back. Lossless roundtrip.
+Convert Salesforce metadata XML to AI-friendly YAML and back. Semantically lossless roundtrip.
 
 Salesforce metadata XML is extremely verbose — profiles, permission sets, flows, and objects can be 20,000–50,000+ lines of XML with 70–85% structural overhead. This burns tokens and money when AI tools (Claude Code, Codex, Cursor, etc.) read or edit your metadata.
 
@@ -81,7 +81,7 @@ sf-compact pack force-app --include "*.profile-meta.xml"
 sf-compact unpack [source...] [-o output]
 ```
 
-Convert compact YAML back to Salesforce metadata XML (lossless).
+Convert compact YAML back to Salesforce metadata XML (semantically lossless).
 
 ```bash
 sf-compact unpack .sf-compact -o force-app
@@ -152,7 +152,7 @@ sf-compact manifest
 
 ## Supported Metadata Types
 
-43 Salesforce metadata types across 7 categories:
+46 file extensions mapping to 41 unique Salesforce metadata types across 7 categories:
 
 | Category | Types |
 |----------|-------|
@@ -180,7 +180,8 @@ sf-compact manifest
 - Groups repeated elements (e.g., `<fieldPermissions>`) into YAML arrays
 - Coerces types: `"true"` → `true`, `"59.0"` → `59.0`
 - Flattens simple key-value containers into inline YAML mappings
-- Preserves namespaces, attributes, and all structural information for lossless roundtrip
+- Preserves namespaces, attributes, and all structural information for semantically lossless roundtrip
+- **Note:** element ordering within a parent may change. Salesforce metadata API does not guarantee element order, so this is semantically equivalent
 
 Token counting uses the `cl100k_base` tokenizer (same family used by GPT-4 and Claude).
 

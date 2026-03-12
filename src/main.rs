@@ -12,7 +12,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "sf-compact")]
 #[command(
-    about = "Convert Salesforce metadata XML to AI-friendly YAML and back. Lossless roundtrip."
+    about = "Convert Salesforce metadata XML to AI-friendly YAML and back. Semantically lossless roundtrip."
 )]
 #[command(version)]
 struct Cli {
@@ -36,7 +36,7 @@ enum Commands {
         #[arg(long)]
         include: Option<String>,
     },
-    /// Convert compact YAML back to Salesforce XML metadata (lossless)
+    /// Convert compact YAML back to Salesforce XML metadata (semantically lossless)
     Unpack {
         /// Source path: directory or specific file(s)
         #[arg(default_value = ".sf-compact")]
@@ -102,13 +102,13 @@ fn main() -> Result<()> {
             };
             let stats = convert::pack(&opts, &output)?;
             println!(
-                "Packed {} files: {} → {} bytes ({:.1}% reduction, ~{} tokens saved)",
+                "Packed {} files: {} → {} bytes ({:.1}% reduction)",
                 stats.files_processed,
                 stats.original_bytes,
                 stats.compact_bytes,
                 stats.reduction_percent(),
-                stats.tokens_saved(),
             );
+            println!("Run `sf-compact stats` for detailed token savings.");
         }
         Commands::Unpack {
             source,
