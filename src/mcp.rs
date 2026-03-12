@@ -307,6 +307,18 @@ sf-compact config skip customMetadata               # exclude a type
 sf-compact config show                              # display config
 ```
 
+### Watch (auto-pack on changes)
+```bash
+sf-compact watch [source...] [-o output] [--format yaml|yaml-ordered|json]
+```
+Watches source directories and auto-repacks when XML files change.
+
+### Diff (detect unpacked changes)
+```bash
+sf-compact diff [source...] [-o packed-dir]
+```
+Shows which XML files have changed since last pack (new, modified, deleted).
+
 ### Other Commands
 - `sf-compact manifest` — output supported metadata types in JSON
 - `sf-compact mcp-serve` — start MCP server over stdio

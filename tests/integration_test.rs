@@ -1256,6 +1256,159 @@ fn unpack_skips_invalid_sf_compact_files() {
     );
 }
 
+// ─── Diff tests ─────────────────────────────────────────────────
+
+#[test]
+fn diff_shows_no_changes_after_pack() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack first
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to pack");
+    assert!(output.status.success());
+
+    // Diff should show no changes
+    let output = sf_compact()
+        .args([
+            "diff",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to diff");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("No changes"),
+        "should show no changes after fresh pack, got: {stdout}"
+    );
+}
+
+#[test]
+fn diff_detects_new_files() {
+    let packed = tempfile::tempdir().unwrap();
+
+    // Don't pack anything — all files should be "new"
+    let output = sf_compact()
+        .args([
+            "diff",
+            "tests/fixtures",
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to diff");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("new"),
+        "should show new files when nothing packed, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Run `sf-compact pack`"),
+        "should suggest running pack, got: {stdout}"
+    );
+}
+
+#[test]
+fn diff_detects_modified_files() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack first
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to pack");
+    assert!(output.status.success());
+
+    // Corrupt a packed file to simulate stale pack
+    let profile_yaml = packed
+        .path()
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
+    assert!(profile_yaml.exists());
+    std::fs::write(&profile_yaml, "# corrupted\n").unwrap();
+
+    // Diff should detect the modification
+    let output = sf_compact()
+        .args([
+            "diff",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to diff");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("modified"),
+        "should detect modified file, got: {stdout}"
+    );
+}
+
+// ─── Unpack --include test ──────────────────────────────────────
+
+#[test]
+fn unpack_with_include_filter() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    // Pack everything first
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to pack");
+    assert!(output.status.success());
+
+    // Unpack only profiles
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+            "--include",
+            "*.profile-meta.yaml",
+        ])
+        .output()
+        .expect("failed to unpack with --include");
+    assert!(
+        output.status.success(),
+        "unpack with --include failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Unpacked 1 files"),
+        "should unpack only 1 profile, got: {stdout}"
+    );
+}
+
 /// Helper to recursively copy a directory.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
     std::fs::create_dir_all(dst).unwrap();
