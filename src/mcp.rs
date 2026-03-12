@@ -266,68 +266,61 @@ pub fn generate_instructions() -> String {
 
 ## What is sf-compact?
 
-sf-compact converts Salesforce metadata XML files into a compact YAML format that is semantically equivalent but uses significantly fewer tokens. This reduces cost and improves performance when AI tools read or analyze Salesforce metadata.
+sf-compact converts Salesforce metadata XML files into compact YAML or JSON formats that are semantically equivalent but use significantly fewer tokens (42–54% reduction). This reduces cost and improves performance when AI tools read or analyze Salesforce metadata.
 
-The conversion is **lossless** — you can always convert back to the original XML format.
+The conversion is **semantically lossless** — you can always convert back to XML. Element order within a parent may change unless you use `yaml-ordered` or `json` format.
+
+## Output Formats
+
+- **yaml** — grouped arrays, ~49% token savings, best for order-insensitive types
+- **yaml-ordered** — `_children` sequences, ~42% savings, preserves element order
+- **json** — compact single-line, ~54% savings, preserves order
 
 ## Available Commands
 
-### Pack (XML to YAML)
+### Pack (XML to compact format)
 ```bash
-sf-compact pack [source] [-o output]
+sf-compact pack [source...] [-o output] [--format yaml|yaml-ordered|json] [--include pattern]
 ```
-Convert Salesforce metadata XML to compact YAML.
-- `source` — directory with XML files (default: `force-app`)
+- `source` — one or more directories or files (default: `force-app`)
 - `-o output` — output directory (default: `.sf-compact`)
+- `--format` — output format override (default: from config or `yaml`)
+- `--include` — glob filter (e.g. `"*.profile-meta.xml"`)
 
-**Example:**
+### Unpack (compact format to XML)
 ```bash
-sf-compact pack force-app -o .sf-compact
+sf-compact unpack [source...] [-o output] [--include pattern]
 ```
-
-### Unpack (YAML to XML)
-```bash
-sf-compact unpack [source] [-o output]
-```
-Convert compact YAML back to Salesforce metadata XML.
-- `source` — directory with YAML files (default: `.sf-compact`)
-- `-o output` — output directory (default: `force-app`)
-
-**Example:**
-```bash
-sf-compact unpack .sf-compact -o force-app
-```
+Auto-detects format by file extension (`.yaml` or `.json`).
 
 ### Stats
 ```bash
-sf-compact stats [source]
+sf-compact stats [source...] [--include pattern] [--files]
 ```
-Analyze metadata and show token/byte savings.
+Preview token/byte savings without writing files.
 
-**Example:**
+### Configuration
 ```bash
-sf-compact stats force-app
+sf-compact config init                              # create .sfcompact.yaml with smart defaults
+sf-compact config set flow json profile yaml        # batch set formats per type
+sf-compact config set default json                  # change default format
+sf-compact config skip customMetadata               # exclude a type
+sf-compact config show                              # display config
 ```
 
-### Manifest
-```bash
-sf-compact manifest
-```
-Output supported metadata types in JSON format.
+### Other Commands
+- `sf-compact manifest` — output supported metadata types in JSON
+- `sf-compact mcp-serve` — start MCP server over stdio
+- `sf-compact init mcp` — create/update .mcp.json
+- `sf-compact init instructions` — generate AI instructions markdown
 
-### MCP Server
-```bash
-sf-compact mcp-serve
-```
-Start the MCP (Model Context Protocol) server over stdio for tool integration.
+## Workflow
 
-## Workflow Instructions
-
-1. **Always work with YAML files** in `.sf-compact/` for reading and editing metadata.
-2. **Run `sf-compact pack`** after pulling metadata from Salesforce to create compact versions.
-3. **Edit the YAML files** — they are the working copies.
-4. **Run `sf-compact unpack` before deploy** to convert YAML back to XML that Salesforce CLI expects.
-5. **Add `.sf-compact/` to `.gitignore`** if you prefer to treat it as a build artifact, or commit it for AI-friendly diffs.
+1. **Configure** (once): `sf-compact config init`
+2. **Run `sf-compact pack`** after pulling metadata from Salesforce.
+3. **Work with compact files** in `.sf-compact/` — let AI tools read/edit them.
+4. **Run `sf-compact unpack` before deploy** to restore XML.
+5. **Add `.sf-compact/` to `.gitignore`** if you prefer to treat it as a build artifact.
 
 ## Supported Metadata Types
 
