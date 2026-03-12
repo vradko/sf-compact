@@ -181,12 +181,11 @@ fn call_pack(args: &Value) -> Result<Value> {
     let stats = convert::pack_path(Path::new(source), Path::new(output))?;
 
     let text = format!(
-        "Packed {} files: {} -> {} bytes ({:.1}% reduction, ~{} tokens saved)",
+        "Packed {} files: {} -> {} bytes ({:.1}% reduction)",
         stats.files_processed,
         stats.original_bytes,
         stats.compact_bytes,
         stats.reduction_percent(),
-        stats.tokens_saved(),
     );
 
     Ok(json!({
