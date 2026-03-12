@@ -344,3 +344,288 @@ fn pack_with_absolute_paths() {
         "YAML should be inside output dir, not alongside source"
     );
 }
+
+// ─── Config tests ───────────────────────────────────────────────
+
+#[test]
+fn config_init_creates_file() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = sf_compact()
+        .args(["config", "init"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config init");
+    assert!(
+        output.status.success(),
+        "config init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let config_path = dir.path().join(".sfcompact.yaml");
+    assert!(config_path.exists(), ".sfcompact.yaml should be created");
+
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    // Should have smart defaults: order-sensitive types set to json
+    assert!(
+        content.contains("default_format"),
+        "config should contain default_format"
+    );
+    // Flow is order-sensitive, should be json
+    assert!(
+        content.contains("Flow: json") || content.contains("Flow: json"),
+        "Flow should be set to json in smart defaults, got: {content}"
+    );
+}
+
+#[test]
+fn config_set_single_type() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // First init config
+    let output = sf_compact()
+        .args(["config", "init"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config init");
+    assert!(output.status.success());
+
+    // Set a single type
+    let output = sf_compact()
+        .args(["config", "set", "flow", "json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config set");
+    assert!(
+        output.status.success(),
+        "config set failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let content = std::fs::read_to_string(dir.path().join(".sfcompact.yaml")).unwrap();
+    assert!(
+        content.contains("flow: json"),
+        "config should contain flow: json, got: {content}"
+    );
+}
+
+#[test]
+fn config_set_batch() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Init config first
+    sf_compact()
+        .args(["config", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Set multiple types in one call
+    let output = sf_compact()
+        .args(["config", "set", "flow", "json", "profile", "yaml"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config set batch");
+    assert!(
+        output.status.success(),
+        "config set batch failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let content = std::fs::read_to_string(dir.path().join(".sfcompact.yaml")).unwrap();
+    assert!(
+        content.contains("flow: json"),
+        "config should contain flow: json, got: {content}"
+    );
+    assert!(
+        content.contains("profile: yaml"),
+        "config should contain profile: yaml, got: {content}"
+    );
+}
+
+#[test]
+fn config_set_default() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Init config first
+    sf_compact()
+        .args(["config", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Change the default format
+    let output = sf_compact()
+        .args(["config", "set", "default", "json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config set default");
+    assert!(
+        output.status.success(),
+        "config set default failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let content = std::fs::read_to_string(dir.path().join(".sfcompact.yaml")).unwrap();
+    assert!(
+        content.contains("default_format: json"),
+        "config should have default_format: json, got: {content}"
+    );
+}
+
+#[test]
+fn config_skip_type() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Init config first
+    sf_compact()
+        .args(["config", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Add to skip list
+    let output = sf_compact()
+        .args(["config", "skip", "customMetadata"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config skip");
+    assert!(
+        output.status.success(),
+        "config skip failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let content = std::fs::read_to_string(dir.path().join(".sfcompact.yaml")).unwrap();
+    assert!(
+        content.contains("customMetadata"),
+        "config should contain customMetadata in skip list, got: {content}"
+    );
+}
+
+#[test]
+fn config_show_displays_config() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Init config first
+    sf_compact()
+        .args(["config", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let output = sf_compact()
+        .args(["config", "show"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run config show");
+    assert!(
+        output.status.success(),
+        "config show failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("default_format"),
+        "config show should display default_format, got: {stdout}"
+    );
+}
+
+#[test]
+fn pack_respects_skip_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let packed = tempfile::tempdir().unwrap();
+
+    // Create a config that skips "flow" type
+    let config_content = "default_format: yaml\nformats: {}\nskip:\n- flow\n";
+    std::fs::write(dir.path().join(".sfcompact.yaml"), config_content).unwrap();
+
+    // Copy test fixtures into the temp dir
+    let fixtures = std::path::Path::new("tests/fixtures");
+    copy_dir_recursive(fixtures, &dir.path().join("tests/fixtures"));
+
+    let output = sf_compact()
+        .args([
+            "pack",
+            dir.path().join("tests/fixtures").to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run pack with skip config");
+    assert!(
+        output.status.success(),
+        "pack failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Without skip, we pack 5 files. With flow skipped, we should pack 4.
+    assert!(
+        stdout.contains("Packed 4 files"),
+        "should pack 4 files (skipping flow), got: {stdout}"
+    );
+}
+
+#[test]
+fn manifest_includes_order_sensitive() {
+    let output = sf_compact()
+        .args(["manifest"])
+        .output()
+        .expect("failed to run manifest");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("manifest output is not valid JSON");
+
+    let metadata = parsed["supported_metadata"].as_array().unwrap();
+
+    // Check that Flow is order_sensitive: true
+    let flow_entry = metadata
+        .iter()
+        .find(|e| e["type"] == "Flow")
+        .expect("Flow entry not found in manifest");
+    assert_eq!(
+        flow_entry["order_sensitive"], true,
+        "Flow should be order_sensitive"
+    );
+
+    // Check that Profile is order_sensitive: false
+    let profile_entry = metadata
+        .iter()
+        .find(|e| e["type"] == "Profile")
+        .expect("Profile entry not found in manifest");
+    assert_eq!(
+        profile_entry["order_sensitive"], false,
+        "Profile should not be order_sensitive"
+    );
+
+    // Check that supported_formats is present
+    let formats = flow_entry["supported_formats"].as_array().unwrap();
+    assert!(
+        formats.contains(&serde_json::json!("yaml")),
+        "supported_formats should include yaml"
+    );
+    assert!(
+        formats.contains(&serde_json::json!("json")),
+        "supported_formats should include json"
+    );
+}
+
+/// Helper to recursively copy a directory.
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path);
+        } else {
+            std::fs::copy(&src_path, &dst_path).unwrap();
+        }
+    }
+}

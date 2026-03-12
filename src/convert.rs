@@ -1,3 +1,4 @@
+use crate::config;
 use crate::xml_parser;
 use crate::yaml_writer;
 use anyhow::{Context, Result};
@@ -147,15 +148,37 @@ fn is_sf_metadata(path: &Path) -> bool {
 }
 
 fn metadata_type(path: &Path) -> String {
+    metadata_type_for_ext(path, "-meta.xml")
+}
+
+fn metadata_type_for_ext(path: &Path, suffix: &str) -> String {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    // Extract the type from e.g. "Admin.profile-meta.xml" → "profile"
-    if let Some(pos) = name.rfind("-meta.xml") {
+    if let Some(pos) = name.rfind(suffix) {
         let before = &name[..pos];
         if let Some(dot) = before.rfind('.') {
             return before[dot + 1..].to_string();
         }
     }
     "unknown".to_string()
+}
+
+/// Map a short metadata_type (like "flow") to the manifest type name (like "Flow").
+/// Used for config lookup.
+fn manifest_type_name(short_type: &str) -> String {
+    // We look up from the classify function in manifest via the extension mapping
+    let ext = format!("{short_type}-meta.xml");
+    for sf_ext in SF_META_EXTENSIONS {
+        if *sf_ext == ext {
+            // Found the extension, now get the type name from manifest
+            return crate::manifest::build_manifest()
+                .supported_metadata
+                .into_iter()
+                .find(|e| e.extension == ext)
+                .map(|e| e.meta_type)
+                .unwrap_or_else(|| short_type.to_string());
+        }
+    }
+    short_type.to_string()
 }
 
 fn find_sf_xml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
@@ -346,7 +369,29 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     let root = common_root(opts);
     let mut stats = ConvertStats::new();
 
+    // Load config from current directory (or parent dirs)
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cfg = config::load_config(&cwd).unwrap_or_default();
+
     for xml_path in &files {
+        // Check if this type should be skipped
+        let short_type = metadata_type(xml_path);
+        let type_name = manifest_type_name(&short_type);
+        if cfg.should_skip(&type_name) || cfg.should_skip(&short_type) {
+            continue;
+        }
+
+        // Check the configured format for this type
+        let format = cfg.format_for_type(&type_name);
+        let format_alt = cfg.format_for_type(&short_type);
+        let effective_format = if format != "yaml" { format } else { format_alt };
+        if effective_format != "yaml" {
+            eprintln!(
+                "Warning: {} format not yet supported for {}, using YAML",
+                effective_format, type_name
+            );
+        }
+
         let xml_content = fs::read_to_string(xml_path)
             .with_context(|| format!("Reading {}", xml_path.display()))?;
         let xml_bytes = xml_content.len() as u64;
