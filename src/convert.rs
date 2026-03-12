@@ -86,6 +86,7 @@ pub struct TypeStats {
 }
 
 impl TypeStats {
+    #[allow(dead_code)]
     pub fn reduction_percent(&self) -> f64 {
         if self.original_bytes == 0 {
             return 0.0;
@@ -197,7 +198,11 @@ fn find_yaml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
         } else if path.is_dir() {
             for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
                 if entry.file_type().is_file() {
-                    let ext = entry.path().extension().and_then(|e| e.to_str()).unwrap_or("");
+                    let ext = entry
+                        .path()
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
                     if ext == "yaml" || ext == "yml" {
                         files.push(entry.path().to_path_buf());
                     }
@@ -279,8 +284,8 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     let mut stats = ConvertStats::new();
 
     for xml_path in &files {
-        let xml_content =
-            fs::read_to_string(xml_path).with_context(|| format!("Reading {}", xml_path.display()))?;
+        let xml_content = fs::read_to_string(xml_path)
+            .with_context(|| format!("Reading {}", xml_path.display()))?;
         let xml_bytes = xml_content.len() as u64;
 
         let node = xml_parser::parse_xml(&xml_content)
@@ -309,8 +314,8 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     let mut stats = ConvertStats::new();
 
     for yaml_path in &files {
-        let yaml_content =
-            fs::read_to_string(yaml_path).with_context(|| format!("Reading {}", yaml_path.display()))?;
+        let yaml_content = fs::read_to_string(yaml_path)
+            .with_context(|| format!("Reading {}", yaml_path.display()))?;
 
         let node = yaml_writer::yaml_to_xml_node(&yaml_content)
             .with_context(|| format!("Converting {}", yaml_path.display()))?;
@@ -338,8 +343,8 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
     let mut stats = ConvertStats::new();
 
     for xml_path in &files {
-        let xml_content =
-            fs::read_to_string(xml_path).with_context(|| format!("Reading {}", xml_path.display()))?;
+        let xml_content = fs::read_to_string(xml_path)
+            .with_context(|| format!("Reading {}", xml_path.display()))?;
         let xml_bytes = xml_content.len() as u64;
         let xml_tokens = count_tokens(&xml_content);
 
@@ -351,7 +356,15 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
         let yaml_bytes = yaml.len() as u64;
         let yaml_tokens = count_tokens(&yaml);
 
-        accumulate_stats(&mut stats, xml_path, &root, xml_bytes, yaml_bytes, xml_tokens, yaml_tokens);
+        accumulate_stats(
+            &mut stats,
+            xml_path,
+            &root,
+            xml_bytes,
+            yaml_bytes,
+            xml_tokens,
+            yaml_tokens,
+        );
     }
 
     Ok(stats)
@@ -368,7 +381,10 @@ pub fn stats_path(source: &Path) -> Result<ConvertStats> {
 /// Single-path pack for MCP.
 pub fn pack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
     pack(
-        &ConvertOpts { paths: vec![source.to_path_buf()], include: None },
+        &ConvertOpts {
+            paths: vec![source.to_path_buf()],
+            include: None,
+        },
         output,
     )
 }
@@ -376,7 +392,10 @@ pub fn pack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
 /// Single-path unpack for MCP.
 pub fn unpack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
     unpack(
-        &ConvertOpts { paths: vec![source.to_path_buf()], include: None },
+        &ConvertOpts {
+            paths: vec![source.to_path_buf()],
+            include: None,
+        },
         output,
     )
 }

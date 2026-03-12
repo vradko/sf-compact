@@ -31,20 +31,14 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
 
     // Store namespace if present
     if let Some(ns) = &node.namespace {
-        map.insert(
-            Value::String("_ns".to_string()),
-            Value::String(ns.clone()),
-        );
+        map.insert(Value::String("_ns".to_string()), Value::String(ns.clone()));
     }
 
     // Store attributes if present
     if !node.attrs.is_empty() {
         let mut attrs_map = serde_yaml::Mapping::new();
         for (k, v) in &node.attrs {
-            attrs_map.insert(
-                Value::String(k.clone()),
-                Value::String(v.clone()),
-            );
+            attrs_map.insert(Value::String(k.clone()), Value::String(v.clone()));
         }
         map.insert(
             Value::String("_attrs".to_string()),
@@ -60,10 +54,7 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
     // Check if this is a simple text-only element
     if node.children.len() == 1 {
         if let XmlValue::Text(t) = &node.children[0] {
-            map.insert(
-                Value::String("_text".to_string()),
-                Value::String(t.clone()),
-            );
+            map.insert(Value::String("_text".to_string()), Value::String(t.clone()));
             return Value::Mapping(map);
         }
     }
@@ -124,7 +115,7 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
             // Single complex node — recurse
             let child_val = node_to_yaml_value(nodes[0]);
             if let Value::Mapping(mut m) = child_val {
-                m.remove(&Value::String("_tag".to_string()));
+                m.remove(Value::String("_tag".to_string()));
                 map.insert(Value::String(tag.clone()), Value::Mapping(m));
             }
         } else {
@@ -134,7 +125,7 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
                 .map(|n| {
                     let v = node_to_yaml_value(n);
                     if let Value::Mapping(mut m) = v {
-                        m.remove(&Value::String("_tag".to_string()));
+                        m.remove(Value::String("_tag".to_string()));
                         Value::Mapping(m)
                     } else {
                         v
@@ -250,18 +241,18 @@ fn yaml_value_to_node(value: &Value) -> Result<XmlNode> {
         .ok_or_else(|| anyhow::anyhow!("Expected YAML mapping at root"))?;
 
     let tag = map
-        .get(&Value::String("_tag".to_string()))
+        .get(Value::String("_tag".to_string()))
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing _tag in YAML node"))?
         .to_string();
 
     let namespace = map
-        .get(&Value::String("_ns".to_string()))
+        .get(Value::String("_ns".to_string()))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
     let mut attrs = IndexMap::new();
-    if let Some(Value::Mapping(a)) = map.get(&Value::String("_attrs".to_string())) {
+    if let Some(Value::Mapping(a)) = map.get(Value::String("_attrs".to_string())) {
         for (k, v) in a {
             if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
                 attrs.insert(key.to_string(), val.to_string());
@@ -272,7 +263,7 @@ fn yaml_value_to_node(value: &Value) -> Result<XmlNode> {
     let mut children = Vec::new();
 
     // Handle _text
-    if let Some(text_val) = map.get(&Value::String("_text".to_string())) {
+    if let Some(text_val) = map.get(Value::String("_text".to_string())) {
         match text_val {
             Value::String(s) => children.push(XmlValue::Text(s.clone())),
             Value::Sequence(arr) => {
@@ -337,14 +328,14 @@ fn reconstruct_child_node(tag: &str, value: &Value) -> Result<XmlNode> {
     match value {
         Value::Mapping(m) => {
             // Check if this mapping has meta keys (complex node) or just kv pairs (simple node)
-            let has_meta_keys = m.contains_key(&Value::String("_ns".to_string()))
-                || m.contains_key(&Value::String("_attrs".to_string()))
-                || m.contains_key(&Value::String("_text".to_string()));
+            let has_meta_keys = m.contains_key(Value::String("_ns".to_string()))
+                || m.contains_key(Value::String("_attrs".to_string()))
+                || m.contains_key(Value::String("_text".to_string()));
 
             // Also check if any values are themselves mappings/sequences — that means complex children
-            let has_complex_values = m.iter().any(|(_, v)| {
-                matches!(v, Value::Mapping(_) | Value::Sequence(_))
-            });
+            let has_complex_values = m
+                .iter()
+                .any(|(_, v)| matches!(v, Value::Mapping(_) | Value::Sequence(_)));
 
             if has_meta_keys || has_complex_values {
                 // Complex node — add _tag back and recurse
@@ -402,6 +393,9 @@ fn yaml_value_to_string(val: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::Null => String::new(),
-        _ => serde_yaml::to_string(val).unwrap_or_default().trim().to_string(),
+        _ => serde_yaml::to_string(val)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
     }
 }

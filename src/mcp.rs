@@ -40,10 +40,7 @@ pub fn serve() -> Result<()> {
             None => continue,
         };
 
-        let method = msg
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
         let params = msg.get("params").cloned().unwrap_or(json!({}));
 

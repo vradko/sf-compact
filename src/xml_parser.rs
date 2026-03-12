@@ -26,7 +26,6 @@ pub struct XmlNode {
     pub children: Vec<XmlValue>,
 }
 
-
 /// Parse XML string into an XmlNode tree.
 pub fn parse_xml(xml: &str) -> Result<XmlNode> {
     let mut reader = Reader::from_str(xml);
@@ -50,7 +49,10 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
                 }
             }
             Ok(Event::Text(ref e)) => {
-                let text = e.unescape().context("Failed to unescape XML text")?.to_string();
+                let text = e
+                    .unescape()
+                    .context("Failed to unescape XML text")?
+                    .to_string();
                 if !text.is_empty() {
                     if let Some(parent) = stack.last_mut() {
                         parent.children.push(XmlValue::Text(text));
@@ -58,8 +60,7 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
                 }
             }
             Ok(Event::CData(ref e)) => {
-                let text = String::from_utf8(e.to_vec())
-                    .context("Failed to decode CDATA")?;
+                let text = String::from_utf8(e.to_vec()).context("Failed to decode CDATA")?;
                 if !text.is_empty() {
                     if let Some(parent) = stack.last_mut() {
                         parent.children.push(XmlValue::Text(text));
@@ -79,7 +80,10 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
             }
             Ok(Event::Eof) => break,
             Ok(_) => {} // Comments, PI, etc. — skip
-            Err(e) => anyhow::bail!("XML parse error at position {}: {e}", reader.error_position()),
+            Err(e) => anyhow::bail!(
+                "XML parse error at position {}: {e}",
+                reader.error_position()
+            ),
         }
     }
 
@@ -87,8 +91,7 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
 }
 
 fn element_to_node(e: &BytesStart, reader: &Reader<&[u8]>) -> Result<XmlNode> {
-    let tag = String::from_utf8(e.local_name().as_ref().to_vec())
-        .context("Invalid tag name")?;
+    let tag = String::from_utf8(e.local_name().as_ref().to_vec()).context("Invalid tag name")?;
 
     let namespace = e
         .try_get_attribute("xmlns")
