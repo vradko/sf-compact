@@ -61,7 +61,7 @@ fn node_to_json_value(node: &XmlNode) -> Value {
         .iter()
         .filter_map(|c| match c {
             XmlValue::Text(t) => Some(t.as_str()),
-            _ => None,
+            XmlValue::Node(_) | XmlValue::Comment(_) => None,
         })
         .collect();
 
@@ -84,13 +84,21 @@ fn node_to_json_value(node: &XmlNode) -> Value {
         }
     }
 
-    // All element children go into _children array, preserving exact document order
+    // All element children and comments go into _children array, preserving exact document order
     let child_nodes: Vec<Value> = node
         .children
         .iter()
         .filter_map(|c| match c {
             XmlValue::Node(n) => Some(child_node_to_json(n)),
-            _ => None,
+            XmlValue::Comment(text) => {
+                let mut m = serde_json::Map::new();
+                m.insert(
+                    constants::KEY_COMMENT.to_string(),
+                    Value::String(text.clone()),
+                );
+                Some(Value::Object(m))
+            }
+            XmlValue::Text(_) => None,
         })
         .collect();
 
@@ -151,8 +159,8 @@ fn smart_json_value(text: &str) -> Value {
 
 fn is_text_leaf(node: &XmlNode) -> bool {
     node.attrs.is_empty()
-        && node.children.len() <= 1
         && node.children.iter().all(|c| matches!(c, XmlValue::Text(_)))
+        && node.children.len() <= 1
 }
 
 fn leaf_text(node: &XmlNode) -> &str {
@@ -160,7 +168,7 @@ fn leaf_text(node: &XmlNode) -> &str {
         .first()
         .and_then(|c| match c {
             XmlValue::Text(t) => Some(t.as_str()),
-            _ => None,
+            XmlValue::Node(_) | XmlValue::Comment(_) => None,
         })
         .unwrap_or("")
 }
@@ -187,7 +195,7 @@ fn is_simple_kv_node(node: &XmlNode) -> bool {
                 && n.children.len() <= 1
                 && n.children.iter().all(|cc| matches!(cc, XmlValue::Text(_)))
         }
-        XmlValue::Text(_) => false,
+        XmlValue::Text(_) | XmlValue::Comment(_) => false,
     })
 }
 
@@ -239,6 +247,15 @@ fn json_value_to_node(value: &Value) -> Result<XmlNode> {
     // Handle _children array (order-preserving)
     if let Some(Value::Array(arr)) = obj.get(constants::KEY_CHILDREN) {
         for item in arr {
+            // Check if this is a comment entry: {"_comment": "text"}
+            if let Some(comment_text) = item
+                .as_object()
+                .and_then(|o| o.get(constants::KEY_COMMENT))
+                .and_then(|v| v.as_str())
+            {
+                children.push(XmlValue::Comment(comment_text.to_string()));
+                continue;
+            }
             let child = reconstruct_child_from_json(item)?;
             children.push(XmlValue::Node(child));
         }
@@ -251,6 +268,7 @@ fn json_value_to_node(value: &Value) -> Result<XmlNode> {
         constants::KEY_ATTRS,
         constants::KEY_TEXT,
         constants::KEY_CHILDREN,
+        constants::KEY_COMMENT,
     ];
     for (key, val) in obj {
         if reserved.contains(&key.as_str()) {

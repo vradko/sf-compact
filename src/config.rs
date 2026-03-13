@@ -16,10 +16,20 @@ pub struct SfCompactConfig {
 
     #[serde(default)]
     pub skip: Vec<String>,
+
+    #[serde(default)]
+    pub preserve_comments: bool,
+
+    #[serde(default = "default_indent")]
+    pub indent: u8,
 }
 
 fn default_format() -> String {
     constants::FORMAT_JSON.to_string()
+}
+
+fn default_indent() -> u8 {
+    4
 }
 
 impl Default for SfCompactConfig {
@@ -28,6 +38,8 @@ impl Default for SfCompactConfig {
             default_format: default_format(),
             formats: BTreeMap::new(),
             skip: Vec::new(),
+            preserve_comments: false,
+            indent: default_indent(),
         }
     }
 }
@@ -49,6 +61,8 @@ impl SfCompactConfig {
             default_format: default_format(),
             formats,
             skip: Vec::new(),
+            preserve_comments: false,
+            indent: default_indent(),
         }
     }
 

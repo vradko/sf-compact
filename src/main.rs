@@ -53,6 +53,10 @@ enum Commands {
         /// Only repack files modified since last pack (compare mtimes)
         #[arg(long)]
         incremental: bool,
+
+        /// Preserve XML comments through roundtrip (overrides config)
+        #[arg(long)]
+        preserve_comments: bool,
     },
     /// Convert compact YAML back to Salesforce XML metadata (semantically lossless)
     Unpack {
@@ -67,6 +71,10 @@ enum Commands {
         /// Only include files matching this glob pattern
         #[arg(long)]
         include: Option<String>,
+
+        /// XML output indentation spaces (overrides config, default: 4)
+        #[arg(long)]
+        indent: Option<u8>,
     },
     /// Preview token/byte savings without writing files
     Stats {
@@ -208,14 +216,20 @@ fn main() -> Result<()> {
             include,
             format,
             incremental,
+            preserve_comments,
         } => {
             validate_format(&format)?;
-            let opts = convert::ConvertOpts {
+            let mut opts = convert::ConvertOpts {
                 paths: source,
                 include,
                 format_override: format,
                 incremental,
+                preserve_comments: None,
+                indent: None,
             };
+            if preserve_comments {
+                opts.preserve_comments = Some(true);
+            }
             let stats = convert::pack(&opts, &output)?;
             println!(
                 "Packed {} files: {} → {} bytes ({:.1}% reduction)",
@@ -230,12 +244,15 @@ fn main() -> Result<()> {
             source,
             output,
             include,
+            indent,
         } => {
             let opts = convert::ConvertOpts {
                 paths: source,
                 include,
                 format_override: None,
                 incremental: false,
+                preserve_comments: None,
+                indent,
             };
             let stats = convert::unpack(&opts, &output)?;
             println!("Unpacked {} files", stats.files_processed);
@@ -250,6 +267,8 @@ fn main() -> Result<()> {
                 include,
                 format_override: None,
                 incremental: false,
+                preserve_comments: None,
+                indent: None,
             };
             let stats = convert::stats(&opts)?;
 
@@ -463,8 +482,10 @@ fn config_set(pairs: &[String]) -> Result<()> {
             anyhow::bail!("Type name cannot be empty");
         }
 
-        // Validate format value
-        if !constants::VALID_FORMATS.contains(&value.as_str()) {
+        // Special keys bypass format validation
+        if key == "preserve_comments" || key == "indent" {
+            // handled below
+        } else if !constants::VALID_FORMATS.contains(&value.as_str()) {
             anyhow::bail!(
                 "Invalid format '{}' for '{}'. Valid formats: {}",
                 value,
@@ -475,6 +496,12 @@ fn config_set(pairs: &[String]) -> Result<()> {
 
         if key == "default" {
             cfg.default_format = value.clone();
+        } else if key == "preserve_comments" {
+            cfg.preserve_comments = value == "true";
+        } else if key == "indent" {
+            cfg.indent = value.parse::<u8>().map_err(|_| {
+                anyhow::anyhow!("Invalid indent value '{}', expected a number", value)
+            })?;
         } else {
             cfg.formats.insert(key.clone(), value.clone());
         }

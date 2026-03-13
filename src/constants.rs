@@ -12,3 +12,4 @@ pub const KEY_NS: &str = "_ns";
 pub const KEY_ATTRS: &str = "_attrs";
 pub const KEY_TEXT: &str = "_text";
 pub const KEY_CHILDREN: &str = "_children";
+pub const KEY_COMMENT: &str = "_comment";

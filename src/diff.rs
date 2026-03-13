@@ -31,6 +31,8 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
         include: include.map(|s| s.to_string()),
         format_override: None,
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
 
     let xml_files = convert::find_sf_xml_files(&opts);
@@ -75,7 +77,10 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
         // Generate fresh compact content and compare
         let xml_content = fs::read_to_string(xml_path)
             .with_context(|| format!("Reading {}", xml_path.display()))?;
-        let node = xml_parser::parse_xml(&xml_content)
+        let parse_opts = xml_parser::ParseOptions {
+            preserve_comments: cfg.preserve_comments,
+        };
+        let node = xml_parser::parse_xml_with_options(&xml_content, &parse_opts)
             .with_context(|| format!("Parsing {}", xml_path.display()))?;
 
         let fresh = if format == constants::FORMAT_JSON {
@@ -106,6 +111,8 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
             include: include.map(|s| s.to_string()),
             format_override: None,
             incremental: false,
+            preserve_comments: None,
+            indent: None,
         };
         let compact_files = convert::find_compact_files(&packed_opts);
         let packed_root = packed_dir.to_path_buf();

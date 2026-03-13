@@ -26,6 +26,8 @@ pub fn watch(
         include: include.clone(),
         format_override: format_override.clone(),
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
     let stats = convert::pack(&opts, output)?;
     eprintln!(
@@ -75,6 +77,8 @@ pub fn watch(
                         include: include.clone(),
                         format_override: format_override.clone(),
                         incremental: false,
+                        preserve_comments: None,
+                        indent: None,
                     };
                     match convert::pack(&opts, output) {
                         Ok(stats) => {

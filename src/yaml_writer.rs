@@ -87,13 +87,27 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
     let mut text_parts: Vec<String> = Vec::new();
     let mut groups: IndexMap<String, Vec<&XmlNode>> = IndexMap::new();
 
+    let mut comment_parts: Vec<String> = Vec::new();
     for child in &node.children {
         match child {
             XmlValue::Text(t) => text_parts.push(t.clone()),
             XmlValue::Node(n) => {
                 groups.entry(n.tag.clone()).or_default().push(n);
             }
+            XmlValue::Comment(c) => comment_parts.push(c.clone()),
         }
+    }
+
+    // Store comments if present (best-effort: position is lost in grouped yaml)
+    if !comment_parts.is_empty() {
+        map.insert(
+            Value::String(constants::KEY_COMMENT.to_string()),
+            if comment_parts.len() == 1 {
+                Value::String(comment_parts.into_iter().next().unwrap())
+            } else {
+                Value::Sequence(comment_parts.into_iter().map(Value::String).collect())
+            },
+        );
     }
 
     if !text_parts.is_empty() {
@@ -169,9 +183,12 @@ fn is_simple_kv_node(node: &XmlNode) -> bool {
     if !node.attrs.is_empty() || node.children.is_empty() {
         return false;
     }
-    // Must have at least one Node child, and NO Text children
-    let has_text_children = node.children.iter().any(|c| matches!(c, XmlValue::Text(_)));
-    if has_text_children {
+    // Must have at least one Node child, and NO Text or Comment children
+    let has_non_node = node
+        .children
+        .iter()
+        .any(|c| matches!(c, XmlValue::Text(_) | XmlValue::Comment(_)));
+    if has_non_node {
         return false;
     }
     // All child tags must be unique (otherwise it's a repeated-element container, not a kv map)
@@ -189,7 +206,7 @@ fn is_simple_kv_node(node: &XmlNode) -> bool {
                 && n.children.len() <= 1
                 && n.children.iter().all(|cc| matches!(cc, XmlValue::Text(_)))
         }
-        XmlValue::Text(_) => false,
+        XmlValue::Text(_) | XmlValue::Comment(_) => false,
     })
 }
 
@@ -217,7 +234,7 @@ fn simple_node_to_value(node: &XmlNode) -> Value {
 
     for child in &node.children {
         match child {
-            XmlValue::Text(_) => {} // Mixed text in kv node — skip (shouldn't happen in SF metadata)
+            XmlValue::Text(_) | XmlValue::Comment(_) => {} // Mixed text/comments in kv node — skip
             XmlValue::Node(n) => {
                 let text = n
                     .children
@@ -295,12 +312,28 @@ fn yaml_value_to_node(value: &Value) -> Result<XmlNode> {
         }
     }
 
+    // Reconstruct comments from _comment key
+    if let Some(comment_val) = map.get(Value::String(constants::KEY_COMMENT.to_string())) {
+        match comment_val {
+            Value::String(s) => children.push(XmlValue::Comment(s.clone())),
+            Value::Sequence(arr) => {
+                for item in arr {
+                    if let Some(s) = item.as_str() {
+                        children.push(XmlValue::Comment(s.to_string()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Process all other keys as child elements
     let reserved = [
         constants::KEY_TAG,
         constants::KEY_NS,
         constants::KEY_ATTRS,
         constants::KEY_TEXT,
+        constants::KEY_COMMENT,
     ];
     for (key, val) in map {
         let key_str = match key.as_str() {
@@ -470,7 +503,7 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
         .iter()
         .filter_map(|c| match c {
             XmlValue::Text(t) => Some(t.clone()),
-            _ => None,
+            XmlValue::Node(_) | XmlValue::Comment(_) => None,
         })
         .collect();
 
@@ -488,13 +521,21 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
         }
     }
 
-    // All element children go into _children, preserving exact document order
+    // All element children and comments go into _children, preserving exact document order
     let child_values: Vec<Value> = node
         .children
         .iter()
         .filter_map(|c| match c {
             XmlValue::Node(n) => Some(child_node_to_yaml_ordered(n)),
-            _ => None,
+            XmlValue::Comment(text) => {
+                let mut m = serde_yaml::Mapping::new();
+                m.insert(
+                    Value::String(constants::KEY_COMMENT.to_string()),
+                    Value::String(text.clone()),
+                );
+                Some(Value::Mapping(m))
+            }
+            XmlValue::Text(_) => None,
         })
         .collect();
 
@@ -587,6 +628,16 @@ fn yaml_ordered_value_to_node(value: &Value) -> Result<XmlNode> {
     if let Some(Value::Sequence(arr)) = map.get(Value::String(constants::KEY_CHILDREN.to_string()))
     {
         for item in arr {
+            // Check if this is a comment entry: {_comment: "text"}
+            if let Some(m) = item.as_mapping() {
+                if let Some(comment_val) = m.get(Value::String(constants::KEY_COMMENT.to_string()))
+                {
+                    if let Some(text) = comment_val.as_str() {
+                        children.push(XmlValue::Comment(text.to_string()));
+                        continue;
+                    }
+                }
+            }
             let child = reconstruct_child_from_yaml_ordered(item)?;
             children.push(XmlValue::Node(child));
         }

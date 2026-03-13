@@ -242,6 +242,8 @@ fn call_pack(args: &Value) -> Result<Value> {
         include,
         format_override: format,
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
     let stats = convert::pack(&opts, Path::new(output))?;
 
@@ -277,6 +279,8 @@ fn call_unpack(args: &Value) -> Result<Value> {
         include,
         format_override: None,
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
     let stats = convert::unpack(&opts, Path::new(output))?;
 
@@ -302,6 +306,8 @@ fn call_stats(args: &Value) -> Result<Value> {
         include,
         format_override: None,
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
     let stats = convert::stats(&opts)?;
 
