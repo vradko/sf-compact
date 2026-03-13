@@ -24,6 +24,10 @@ use std::path::PathBuf;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Number of parallel threads (default: number of CPU cores)
+    #[arg(long, short = 'j', global = true)]
+    jobs: Option<usize>,
 }
 
 #[derive(Subcommand)]
@@ -45,6 +49,10 @@ enum Commands {
         /// Output format override (yaml, yaml-ordered, or json). Takes precedence over config.
         #[arg(long)]
         format: Option<String>,
+
+        /// Only repack files modified since last pack (compare mtimes)
+        #[arg(long)]
+        incremental: bool,
     },
     /// Convert compact YAML back to Salesforce XML metadata (semantically lossless)
     Unpack {
@@ -146,6 +154,8 @@ enum InitMode {
         #[arg(long, default_value = "SF_COMPACT.md")]
         name: String,
     },
+    /// Generate .cursorrules / .windsurfrules for AI editors
+    Cursorrules,
 }
 
 #[derive(Subcommand)]
@@ -184,18 +194,27 @@ fn validate_format(format: &Option<String>) -> Result<()> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if let Some(jobs) = cli.jobs {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs)
+            .build_global()
+            .ok(); // ignore if already set
+    }
+
     match cli.command {
         Commands::Pack {
             source,
             output,
             include,
             format,
+            incremental,
         } => {
             validate_format(&format)?;
             let opts = convert::ConvertOpts {
                 paths: source,
                 include,
                 format_override: format,
+                incremental,
             };
             let stats = convert::pack(&opts, &output)?;
             println!(
@@ -216,6 +235,7 @@ fn main() -> Result<()> {
                 paths: source,
                 include,
                 format_override: None,
+                incremental: false,
             };
             let stats = convert::unpack(&opts, &output)?;
             println!("Unpacked {} files", stats.files_processed);
@@ -229,6 +249,7 @@ fn main() -> Result<()> {
                 paths: source,
                 include,
                 format_override: None,
+                incremental: false,
             };
             let stats = convert::stats(&opts)?;
 
@@ -385,6 +406,9 @@ fn main() -> Result<()> {
             InitMode::Instructions { name } => {
                 init_instructions(&name)?;
             }
+            InitMode::Cursorrules => {
+                init_cursorrules()?;
+            }
         },
         Commands::Config { action } => match action {
             ConfigAction::Init => {
@@ -526,6 +550,71 @@ fn init_mcp() -> Result<()> {
 
     println!("Created/updated .mcp.json with sf-compact MCP server entry");
     Ok(())
+}
+
+fn init_cursorrules() -> Result<()> {
+    let content = generate_cursorrules();
+    let files = [".cursorrules", ".windsurfrules"];
+    for name in &files {
+        let path = PathBuf::from(name);
+        fs::write(&path, &content)
+            .with_context(|| format!("Failed to write {}", path.display()))?;
+        println!("Created {}", path.display());
+    }
+    Ok(())
+}
+
+fn generate_cursorrules() -> String {
+    r#"# Salesforce Metadata — sf-compact rules
+
+## Compact files
+
+This project uses sf-compact to convert Salesforce metadata XML into compact YAML/JSON.
+The compact files live in `.sf-compact/` and are 42-54% smaller in tokens.
+
+**When reading Salesforce metadata, prefer `.sf-compact/` over `force-app/` XML files.**
+The compact format is semantically identical but uses far fewer tokens.
+
+## File mapping
+
+- `.sf-compact/**/*-meta.yaml` → compact YAML (grouped arrays)
+- `.sf-compact/**/*-meta.json` → compact JSON (preserves order)
+- `force-app/**/*-meta.xml` → original Salesforce XML
+
+## Editing workflow
+
+1. **Read** from `.sf-compact/` (saves tokens)
+2. **Edit** the compact YAML/JSON directly
+3. **Run `sf-compact unpack`** to restore XML before deployment
+4. Or: edit XML in `force-app/`, then run `sf-compact pack` to update compact files
+
+## Format reference
+
+Compact files use these conventions:
+- `_tag` — root element name (e.g., "Profile", "Flow")
+- `_ns` — XML namespace
+- `_attrs` — XML attributes (rare in SF metadata)
+- `_children` — ordered child elements (yaml-ordered/json format)
+- Repeated elements become arrays (yaml format)
+- Booleans: `true`/`false` (not strings)
+
+## Commands
+
+```bash
+sf-compact pack [source] [-o output] [--format yaml|yaml-ordered|json]
+sf-compact unpack [source] [-o output]
+sf-compact stats [source]    # preview token savings
+sf-compact diff              # check what changed since last pack
+sf-compact lint              # CI check — exits 1 if stale
+```
+
+## Important
+
+- Always run `sf-compact unpack` before `sf project deploy`
+- The conversion is semantically lossless for Salesforce metadata
+- When in doubt, check the XML in `force-app/` — it's the source of truth
+"#
+    .to_string()
 }
 
 fn init_instructions(name: &str) -> Result<()> {

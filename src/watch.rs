@@ -25,6 +25,7 @@ pub fn watch(
         paths: sources.to_vec(),
         include: include.clone(),
         format_override: format_override.clone(),
+        incremental: false,
     };
     let stats = convert::pack(&opts, output)?;
     eprintln!(
@@ -73,6 +74,7 @@ pub fn watch(
                         paths: sources.to_vec(),
                         include: include.clone(),
                         format_override: format_override.clone(),
+                        incremental: false,
                     };
                     match convert::pack(&opts, output) {
                         Ok(stats) => {

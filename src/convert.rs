@@ -4,8 +4,9 @@ use crate::json_writer;
 use crate::metadata_types;
 use crate::xml_parser;
 use crate::yaml_writer;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use indexmap::IndexMap;
+use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -18,6 +19,8 @@ pub struct ConvertOpts {
     pub include: Option<String>,
     /// CLI format override (takes precedence over config).
     pub format_override: Option<String>,
+    /// Only process files modified since last pack (by mtime comparison).
+    pub incremental: bool,
 }
 
 pub struct FileStats {
@@ -310,6 +313,19 @@ fn xml_path_for_compact(compact_path: &Path, source_root: &Path, output_root: &P
     out
 }
 
+/// Check if source file is newer than target file (by mtime).
+fn is_newer_than(source: &Path, target: &Path) -> bool {
+    if !target.exists() {
+        return true;
+    }
+    let src_mtime = fs::metadata(source).and_then(|m| m.modified()).ok();
+    let tgt_mtime = fs::metadata(target).and_then(|m| m.modified()).ok();
+    match (src_mtime, tgt_mtime) {
+        (Some(s), Some(t)) => s > t,
+        _ => true, // if we can't read mtime, reprocess
+    }
+}
+
 fn validate_paths(paths: &[PathBuf]) -> Result<()> {
     for p in paths {
         if !p.exists() {
@@ -356,81 +372,147 @@ pub fn load_config_from_sources(opts: &ConvertOpts) -> Result<config::SfCompactC
     Ok(cfg)
 }
 
+/// Result of processing a single file (used for parallel collection).
+struct PackedFile {
+    xml_path: PathBuf,
+    compact_content: String,
+    out_path: PathBuf,
+    stale_path: PathBuf,
+    xml_bytes: u64,
+    compact_bytes: u64,
+}
+
 /// Pack: XML → compact format (YAML or JSON)
 pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     validate_paths(&opts.paths)?;
     let files = find_sf_xml_files_from_opts(opts);
     let root = common_root(opts);
-    let mut stats = ConvertStats::new();
 
     let cfg = load_config_from_sources(opts)?;
 
-    for xml_path in &files {
-        // Check if this type should be skipped
-        let short_type = metadata_type(xml_path);
-        let type_name = manifest_type_name(&short_type);
-        if cfg.should_skip(&type_name) || cfg.should_skip(&short_type) {
-            continue;
-        }
-
-        let format = effective_format(&short_type, &type_name, &cfg, &opts.format_override);
-
-        let xml_content = match fs::read_to_string(xml_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Warning: skipping {} (read error: {e})", xml_path.display());
-                continue;
+    // Process files in parallel: parse XML → convert to compact format
+    let results: Vec<Option<PackedFile>> = files
+        .par_iter()
+        .map(|xml_path| {
+            let short_type = metadata_type(xml_path);
+            let type_name = manifest_type_name(&short_type);
+            if cfg.should_skip(&type_name) || cfg.should_skip(&short_type) {
+                return None;
             }
-        };
-        let xml_bytes = xml_content.len() as u64;
 
-        let node = match xml_parser::parse_xml(&xml_content) {
-            Ok(n) => n,
-            Err(e) => {
-                eprintln!(
-                    "Warning: skipping {} (invalid XML: {e})",
-                    xml_path.display()
-                );
-                continue;
+            let format = effective_format(&short_type, &type_name, &cfg, &opts.format_override);
+
+            // Incremental: skip files that haven't changed since last pack
+            if opts.incremental {
+                let ext = if format == constants::FORMAT_JSON {
+                    constants::FORMAT_JSON
+                } else {
+                    "yaml"
+                };
+                let out_path = compact_path_for_xml(xml_path, &root, output, ext);
+                if !is_newer_than(xml_path, &out_path) {
+                    return None;
+                }
             }
-        };
 
-        let (compact_content, ext) = if format == constants::FORMAT_JSON {
-            let json = json_writer::xml_to_json(&node)
-                .with_context(|| format!("Converting {} to JSON", xml_path.display()))?;
-            (json, constants::FORMAT_JSON)
-        } else if format == constants::FORMAT_YAML_ORDERED {
-            let yaml = yaml_writer::xml_to_yaml_ordered(&node)
-                .with_context(|| format!("Converting {} to YAML (ordered)", xml_path.display()))?;
-            (yaml, "yaml")
-        } else {
-            let yaml = yaml_writer::xml_to_yaml(&node)
-                .with_context(|| format!("Converting {} to YAML", xml_path.display()))?;
-            (yaml, "yaml")
-        };
-        let compact_bytes = compact_content.len() as u64;
+            let xml_content = match fs::read_to_string(xml_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Warning: skipping {} (read error: {e})", xml_path.display());
+                    return None;
+                }
+            };
+            let xml_bytes = xml_content.len() as u64;
 
-        let out_path = compact_path_for_xml(xml_path, &root, output, ext);
-        if let Some(parent) = out_path.parent() {
+            let node = match xml_parser::parse_xml(&xml_content) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: skipping {} (invalid XML: {e})",
+                        xml_path.display()
+                    );
+                    return None;
+                }
+            };
+
+            let (compact_content, ext) = if format == constants::FORMAT_JSON {
+                match json_writer::xml_to_json(&node) {
+                    Ok(json) => (json, constants::FORMAT_JSON),
+                    Err(e) => {
+                        eprintln!("Warning: skipping {} ({e})", xml_path.display());
+                        return None;
+                    }
+                }
+            } else if format == constants::FORMAT_YAML_ORDERED {
+                match yaml_writer::xml_to_yaml_ordered(&node) {
+                    Ok(yaml) => (yaml, "yaml"),
+                    Err(e) => {
+                        eprintln!("Warning: skipping {} ({e})", xml_path.display());
+                        return None;
+                    }
+                }
+            } else {
+                match yaml_writer::xml_to_yaml(&node) {
+                    Ok(yaml) => (yaml, "yaml"),
+                    Err(e) => {
+                        eprintln!("Warning: skipping {} ({e})", xml_path.display());
+                        return None;
+                    }
+                }
+            };
+            let compact_bytes = compact_content.len() as u64;
+
+            let out_path = compact_path_for_xml(xml_path, &root, output, ext);
+            let stale_ext = if ext == constants::FORMAT_JSON {
+                constants::FORMAT_YAML
+            } else {
+                constants::FORMAT_JSON
+            };
+            let stale_path = compact_path_for_xml(xml_path, &root, output, stale_ext);
+
+            Some(PackedFile {
+                xml_path: xml_path.clone(),
+                compact_content,
+                out_path,
+                stale_path,
+                xml_bytes,
+                compact_bytes,
+            })
+        })
+        .collect();
+
+    // Write files and accumulate stats (sequential for filesystem safety)
+    let mut stats = ConvertStats::new();
+    for item in results.into_iter().flatten() {
+        if let Some(parent) = item.out_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&out_path, &compact_content)?;
+        fs::write(&item.out_path, &item.compact_content)?;
 
-        // Clean up stale file from previous format (e.g. .yaml when switching to .json)
-        let stale_ext = if ext == constants::FORMAT_JSON {
-            constants::FORMAT_YAML
-        } else {
-            constants::FORMAT_JSON
-        };
-        let stale_path = compact_path_for_xml(xml_path, &root, output, stale_ext);
-        if stale_path.exists() {
-            let _ = fs::remove_file(&stale_path);
+        if item.stale_path.exists() {
+            let _ = fs::remove_file(&item.stale_path);
         }
 
-        accumulate_stats(&mut stats, xml_path, &root, xml_bytes, compact_bytes, 0, 0);
+        accumulate_stats(
+            &mut stats,
+            &item.xml_path,
+            &root,
+            item.xml_bytes,
+            item.compact_bytes,
+            0,
+            0,
+        );
     }
 
     Ok(stats)
+}
+
+/// Result of unpacking a single file.
+struct UnpackedFile {
+    xml_content: String,
+    xml_path: PathBuf,
+    compact_bytes: u64,
+    xml_bytes: u64,
 }
 
 /// Unpack: compact format (YAML or JSON) → XML
@@ -438,55 +520,86 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     validate_paths(&opts.paths)?;
     let files = find_compact_files_from_opts(opts);
     let root = common_root(opts);
+
+    // Process files in parallel: parse compact → convert to XML
+    let results: Vec<Option<UnpackedFile>> = files
+        .par_iter()
+        .map(|compact_path| {
+            let content = match fs::read_to_string(compact_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: skipping {} (read error: {e})",
+                        compact_path.display()
+                    );
+                    return None;
+                }
+            };
+
+            let is_json = compact_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with("-meta.json"));
+
+            let node = if is_json {
+                match json_writer::json_to_xml_node(&content) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: skipping {} (not valid sf-compact JSON: {e})",
+                            compact_path.display()
+                        );
+                        return None;
+                    }
+                }
+            } else {
+                match yaml_writer::yaml_to_xml_node(&content) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: skipping {} (not valid sf-compact YAML: {e})",
+                            compact_path.display()
+                        );
+                        return None;
+                    }
+                }
+            };
+
+            let xml = xml_parser::to_xml(&node);
+            let xml_path = xml_path_for_compact(compact_path, &root, output);
+
+            Some(UnpackedFile {
+                xml_bytes: xml.len() as u64,
+                xml_content: xml,
+                xml_path,
+                compact_bytes: content.len() as u64,
+            })
+        })
+        .collect();
+
+    // Write files and accumulate stats
     let mut stats = ConvertStats::new();
-
-    for compact_path in &files {
-        let content = fs::read_to_string(compact_path)
-            .with_context(|| format!("Reading {}", compact_path.display()))?;
-
-        let is_json = compact_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with("-meta.json"));
-
-        let node = if is_json {
-            match json_writer::json_to_xml_node(&content) {
-                Ok(n) => n,
-                Err(e) => {
-                    eprintln!(
-                        "Warning: skipping {} (not valid sf-compact JSON: {e})",
-                        compact_path.display()
-                    );
-                    continue;
-                }
-            }
-        } else {
-            match yaml_writer::yaml_to_xml_node(&content) {
-                Ok(n) => n,
-                Err(e) => {
-                    eprintln!(
-                        "Warning: skipping {} (not valid sf-compact YAML: {e})",
-                        compact_path.display()
-                    );
-                    continue;
-                }
-            }
-        };
-
-        let xml = xml_parser::to_xml(&node);
-
-        let xml_path = xml_path_for_compact(compact_path, &root, output);
-        if let Some(parent) = xml_path.parent() {
+    for item in results.into_iter().flatten() {
+        if let Some(parent) = item.xml_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&xml_path, &xml)?;
+        fs::write(&item.xml_path, &item.xml_content)?;
 
         stats.files_processed += 1;
-        stats.compact_bytes += content.len() as u64;
-        stats.original_bytes += xml.len() as u64;
+        stats.compact_bytes += item.compact_bytes;
+        stats.original_bytes += item.xml_bytes;
     }
 
     Ok(stats)
+}
+
+/// Per-file stats result for parallel collection.
+struct FileStatsResult {
+    xml_path: PathBuf,
+    xml_bytes: u64,
+    compact_bytes: u64,
+    xml_tokens: usize,
+    compact_tokens: usize,
 }
 
 /// Stats: preview without writing, with real token counting.
@@ -495,61 +608,73 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
     validate_paths(&opts.paths)?;
     let files = find_sf_xml_files_from_opts(opts);
     let root = common_root(opts);
-    let mut stats = ConvertStats::new();
 
     let cfg = load_config_from_sources(opts)?;
 
-    for xml_path in &files {
-        let short_type = metadata_type(xml_path);
-        let type_name = manifest_type_name(&short_type);
-        if cfg.should_skip(&type_name) || cfg.should_skip(&short_type) {
-            continue;
-        }
-
-        let format = effective_format(&short_type, &type_name, &cfg, &opts.format_override);
-
-        let xml_content = match fs::read_to_string(xml_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Warning: skipping {} (read error: {e})", xml_path.display());
-                continue;
+    // Process files in parallel (token counting is CPU-heavy)
+    let results: Vec<Option<FileStatsResult>> = files
+        .par_iter()
+        .map(|xml_path| {
+            let short_type = metadata_type(xml_path);
+            let type_name = manifest_type_name(&short_type);
+            if cfg.should_skip(&type_name) || cfg.should_skip(&short_type) {
+                return None;
             }
-        };
-        let xml_bytes = xml_content.len() as u64;
-        let xml_tokens = count_tokens(&xml_content);
 
-        let node = match xml_parser::parse_xml(&xml_content) {
-            Ok(n) => n,
-            Err(e) => {
-                eprintln!(
-                    "Warning: skipping {} (invalid XML: {e})",
-                    xml_path.display()
-                );
-                continue;
-            }
-        };
+            let format = effective_format(&short_type, &type_name, &cfg, &opts.format_override);
 
-        let compact = if format == constants::FORMAT_JSON {
-            json_writer::xml_to_json(&node)
-                .with_context(|| format!("Converting {}", xml_path.display()))?
-        } else if format == constants::FORMAT_YAML_ORDERED {
-            yaml_writer::xml_to_yaml_ordered(&node)
-                .with_context(|| format!("Converting {}", xml_path.display()))?
-        } else {
-            yaml_writer::xml_to_yaml(&node)
-                .with_context(|| format!("Converting {}", xml_path.display()))?
-        };
-        let compact_bytes = compact.len() as u64;
-        let compact_tokens = count_tokens(&compact);
+            let xml_content = match fs::read_to_string(xml_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Warning: skipping {} (read error: {e})", xml_path.display());
+                    return None;
+                }
+            };
+            let xml_bytes = xml_content.len() as u64;
+            let xml_tokens = count_tokens(&xml_content);
 
+            let node = match xml_parser::parse_xml(&xml_content) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: skipping {} (invalid XML: {e})",
+                        xml_path.display()
+                    );
+                    return None;
+                }
+            };
+
+            let compact = if format == constants::FORMAT_JSON {
+                json_writer::xml_to_json(&node).ok()?
+            } else if format == constants::FORMAT_YAML_ORDERED {
+                yaml_writer::xml_to_yaml_ordered(&node).ok()?
+            } else {
+                yaml_writer::xml_to_yaml(&node).ok()?
+            };
+            let compact_bytes = compact.len() as u64;
+            let compact_tokens = count_tokens(&compact);
+
+            Some(FileStatsResult {
+                xml_path: xml_path.clone(),
+                xml_bytes,
+                compact_bytes,
+                xml_tokens,
+                compact_tokens,
+            })
+        })
+        .collect();
+
+    // Merge results
+    let mut stats = ConvertStats::new();
+    for item in results.into_iter().flatten() {
         accumulate_stats(
             &mut stats,
-            xml_path,
+            &item.xml_path,
             &root,
-            xml_bytes,
-            compact_bytes,
-            xml_tokens,
-            compact_tokens,
+            item.xml_bytes,
+            item.compact_bytes,
+            item.xml_tokens,
+            item.compact_tokens,
         );
     }
 

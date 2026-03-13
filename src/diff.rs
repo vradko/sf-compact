@@ -30,6 +30,7 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
         paths: sources.to_vec(),
         include: include.map(|s| s.to_string()),
         format_override: None,
+        incremental: false,
     };
 
     let xml_files = convert::find_sf_xml_files(&opts);
@@ -104,6 +105,7 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
             paths: vec![packed_dir.to_path_buf()],
             include: include.map(|s| s.to_string()),
             format_override: None,
+            incremental: false,
         };
         let compact_files = convert::find_compact_files(&packed_opts);
         let packed_root = packed_dir.to_path_buf();

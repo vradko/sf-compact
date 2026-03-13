@@ -22,6 +22,7 @@ anyhow = "1"
 indexmap = { version = "2", features = ["serde"] }
 tiktoken-rs = "0.9.1"
 glob = "0.3"
+rayon = "1.10"
 notify = { version = "8", features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.7"
 
