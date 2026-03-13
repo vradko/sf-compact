@@ -19,7 +19,7 @@ pub struct SfCompactConfig {
 }
 
 fn default_format() -> String {
-    constants::FORMAT_YAML.to_string()
+    constants::FORMAT_JSON.to_string()
 }
 
 impl Default for SfCompactConfig {
@@ -34,17 +34,15 @@ impl Default for SfCompactConfig {
 
 impl SfCompactConfig {
     /// Create a config with smart defaults based on manifest metadata.
-    /// Order-sensitive types get `yaml-ordered`, everything else gets `yaml`.
+    /// Default is JSON (preserves order, max savings). Order-insensitive types
+    /// (Profile, PermissionSet) get YAML for better human readability.
     pub fn with_smart_defaults(
         entries: &[(String, bool, Vec<String>)], // (type_name, order_sensitive, supported_formats)
     ) -> Self {
         let mut formats = BTreeMap::new();
         for (type_name, order_sensitive, _supported) in entries {
-            if *order_sensitive {
-                formats.insert(
-                    type_name.clone(),
-                    constants::FORMAT_YAML_ORDERED.to_string(),
-                );
+            if !*order_sensitive {
+                formats.insert(type_name.clone(), constants::FORMAT_YAML.to_string());
             }
         }
         Self {
@@ -151,7 +149,7 @@ mod tests {
     #[test]
     fn default_config() {
         let config = SfCompactConfig::default();
-        assert_eq!(config.default_format, "yaml");
+        assert_eq!(config.default_format, "json");
         assert!(config.formats.is_empty());
         assert!(config.skip.is_empty());
     }
@@ -161,9 +159,9 @@ mod tests {
         let mut config = SfCompactConfig::default();
         config
             .formats
-            .insert("flow".to_string(), "json".to_string());
-        assert_eq!(config.format_for_type("flow"), "json");
-        assert_eq!(config.format_for_type("profile"), "yaml");
+            .insert("flow".to_string(), "yaml-ordered".to_string());
+        assert_eq!(config.format_for_type("flow"), "yaml-ordered");
+        assert_eq!(config.format_for_type("profile"), "json");
     }
 
     #[test]
@@ -192,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn smart_defaults_assigns_yaml_ordered_to_order_sensitive() {
+    fn smart_defaults_assigns_yaml_to_order_insensitive() {
         let entries = vec![
             (
                 "Flow".to_string(),
@@ -214,7 +212,8 @@ mod tests {
             ),
         ];
         let config = SfCompactConfig::with_smart_defaults(&entries);
-        assert_eq!(config.format_for_type("Flow"), "yaml-ordered");
+        // JSON is default; order-insensitive Profile gets yaml for readability
+        assert_eq!(config.format_for_type("Flow"), "json");
         assert_eq!(config.format_for_type("Profile"), "yaml");
     }
 }

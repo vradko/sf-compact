@@ -8,15 +8,15 @@ Salesforce metadata XML is extremely verbose — profiles, permission sets, flow
 
 ## Output Formats
 
-| Format | Preserves order | Human-readable | Token savings |
-|--------|:-:|:-:|:-:|
-| `yaml` | No | Yes | ~49% |
-| `yaml-ordered` | Yes | Yes | ~42% |
-| `json` | Yes | Less | ~54% |
+| Format | Preserves order | Human-readable | Token savings | Default |
+|--------|:-:|:-:|:-:|:-:|
+| `json` | Yes | Less | ~54% | **Default** |
+| `yaml` | No | Yes | ~49% | Order-insensitive types |
+| `yaml-ordered` | Yes | Yes | ~42% | — |
 
-- **yaml** — groups repeated elements into arrays. Most compact YAML, but sibling order may change. Best for order-insensitive types (Profile, PermissionSet).
-- **yaml-ordered** — uses `_children` sequences to preserve exact element order. Best for order-sensitive types (Flow, FlexiPage, Layout).
-- **json** — compact single-line JSON with arrays. Preserves order, fewest tokens, less human-readable.
+- **json** (default) — compact single-line JSON. Preserves element order, fewest tokens. Recommended for most metadata types.
+- **yaml** — groups repeated elements into arrays. More human-readable, but sibling order may change. Use for order-insensitive types (Profile, PermissionSet) where readability matters.
+- **yaml-ordered** — uses `_children` sequences to preserve exact element order in YAML. Use when you need both YAML readability and order preservation.
 
 ## What "semantically lossless" means
 
@@ -187,11 +187,12 @@ sf-compact config show
 Default config after `config init`:
 
 ```yaml
-default_format: yaml
+default_format: json
 formats:
-  Flow: yaml-ordered
-  FlexiPage: yaml-ordered
-  Layout: yaml-ordered
+  Profile: yaml
+  PermissionSet: yaml
+  PermissionSetGroup: yaml
+  # ... other order-insensitive types get yaml for readability
 skip: []
 ```
 
