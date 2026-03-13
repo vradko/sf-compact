@@ -29,7 +29,7 @@ pub struct XmlNode {
 /// Parse XML string into an XmlNode tree.
 pub fn parse_xml(xml: &str) -> Result<XmlNode> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
+    reader.config_mut().trim_text(false);
 
     let mut stack: Vec<XmlNode> = Vec::new();
     let mut root: Option<XmlNode> = None;
@@ -49,14 +49,32 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
                 }
             }
             Ok(Event::Text(ref e)) => {
-                let text = e
-                    .unescape()
-                    .context("Failed to unescape XML text")?
-                    .to_string();
+                let text = e.decode().context("Failed to decode XML text")?.to_string();
                 if !text.is_empty() {
                     if let Some(parent) = stack.last_mut() {
-                        parent.children.push(XmlValue::Text(text));
+                        append_text(&mut parent.children, text);
                     }
+                }
+            }
+            Ok(Event::GeneralRef(ref e)) => {
+                let name = e
+                    .decode()
+                    .context("Failed to decode entity ref")?
+                    .to_string();
+                let resolved = match name.as_str() {
+                    "amp" => "&".to_string(),
+                    "lt" => "<".to_string(),
+                    "gt" => ">".to_string(),
+                    "quot" => "\"".to_string(),
+                    "apos" => "'".to_string(),
+                    _ if name.starts_with('#') => match e.resolve_char_ref() {
+                        Ok(Some(ch)) => ch.to_string(),
+                        _ => format!("&{name};"),
+                    },
+                    _ => format!("&{name};"),
+                };
+                if let Some(parent) = stack.last_mut() {
+                    append_text(&mut parent.children, resolved);
                 }
             }
             Ok(Event::CData(ref e)) => {
@@ -68,7 +86,8 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
                 }
             }
             Ok(Event::End(_)) => {
-                let node = stack.pop().context("Unexpected closing tag")?;
+                let mut node = stack.pop().context("Unexpected closing tag")?;
+                trim_children(&mut node.children);
                 if let Some(parent) = stack.last_mut() {
                     parent.children.push(XmlValue::Node(node));
                 } else {
@@ -183,6 +202,47 @@ fn write_node(out: &mut String, node: &XmlNode, indent: usize) {
     out.push_str("</");
     out.push_str(&node.tag);
     out.push('>');
+}
+
+/// Trim whitespace from children after an element is fully parsed.
+/// With trim_text(false), we get raw whitespace from indentation.
+/// Rules:
+/// - If children contain any Node elements, remove pure-whitespace Text nodes (indentation)
+/// - If children are text-only, trim leading/trailing whitespace from the merged text
+fn trim_children(children: &mut Vec<XmlValue>) {
+    let has_nodes = children.iter().any(|c| matches!(c, XmlValue::Node(_)));
+
+    if has_nodes {
+        // Remove pure-whitespace text nodes (indentation between elements)
+        children.retain(|c| match c {
+            XmlValue::Text(t) => !t.trim().is_empty(),
+            _ => true,
+        });
+    } else {
+        // Text-only content: trim leading/trailing whitespace of the combined text
+        // but preserve internal spacing (e.g. "Amount > 1000")
+        if children.len() == 1 {
+            if let XmlValue::Text(t) = &mut children[0] {
+                let trimmed = t.trim().to_string();
+                if trimmed.is_empty() {
+                    children.clear();
+                } else {
+                    *t = trimmed;
+                }
+            }
+        }
+    }
+}
+
+/// Append text to children, merging with the last child if it's also text.
+/// This is needed because quick-xml 0.39+ splits `&entity;` into separate
+/// GeneralRef events, so `R&amp;D` becomes Text("R") + GeneralRef("amp") + Text("D").
+fn append_text(children: &mut Vec<XmlValue>, text: String) {
+    if let Some(XmlValue::Text(existing)) = children.last_mut() {
+        existing.push_str(&text);
+    } else {
+        children.push(XmlValue::Text(text));
+    }
 }
 
 fn escape_text(s: &str) -> String {
