@@ -6,7 +6,7 @@ const path = require("path");
 const https = require("https");
 const http = require("http");
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.4";
 const REPO = "vradko/sf-compact";
 
 const PLATFORMS = {
