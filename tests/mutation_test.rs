@@ -19,7 +19,7 @@ fn mutation_yaml_change_field_value() {
     <type>Picklist</type>
 </CustomField>"#;
 
-    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &[]);
+    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &["--format", "yaml"]);
 
     // Mutate: change label
     let yaml_path = find_file(&packed_dir, "field-meta.yaml");
@@ -51,7 +51,7 @@ fn mutation_yaml_add_new_element() {
     <type>Currency</type>
 </CustomField>"#;
 
-    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &[]);
+    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &["--format", "yaml"]);
 
     // Mutate: add description
     let yaml_path = find_file(&packed_dir, "field-meta.yaml");
@@ -82,7 +82,7 @@ fn mutation_yaml_delete_element() {
     <type>Currency</type>
 </CustomField>"#;
 
-    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &[]);
+    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &["--format", "yaml"]);
 
     // Mutate: remove description line
     let yaml_path = find_file(&packed_dir, "field-meta.yaml");
@@ -118,7 +118,7 @@ fn mutation_yaml_change_boolean() {
     <trackFeedHistory>false</trackFeedHistory>
 </CustomField>"#;
 
-    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &[]);
+    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.field-meta.xml", &["--format", "yaml"]);
 
     // Mutate: flip boolean
     let yaml_path = find_file(&packed_dir, "field-meta.yaml");
@@ -153,7 +153,7 @@ fn mutation_yaml_add_array_element() {
     </fieldPermissions>
 </Profile>"#;
 
-    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.profile-meta.xml", &[]);
+    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.profile-meta.xml", &["--format", "yaml"]);
 
     // Mutate: add a third fieldPermission to the array
     let yaml_path = find_file(&packed_dir, "profile-meta.yaml");
@@ -194,7 +194,7 @@ fn mutation_yaml_remove_array_element() {
     </fieldPermissions>
 </Profile>"#;
 
-    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.profile-meta.xml", &[]);
+    let (packed_dir, unpacked_dir) = pack_xml(xml, "Test.profile-meta.xml", &["--format", "yaml"]);
 
     // Mutate: remove second fieldPermission
     let yaml_path = find_file(&packed_dir, "profile-meta.yaml");

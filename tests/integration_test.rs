@@ -33,11 +33,11 @@ fn pack_and_unpack_roundtrip() {
         "unexpected pack output: {stdout}"
     );
 
-    // Verify YAML files were created
-    let yaml_profile = packed
+    // Verify JSON files were created (json is default format)
+    let json_profile = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
-    assert!(yaml_profile.exists(), "YAML profile not created");
+        .join("force-app/main/default/profiles/Admin.profile-meta.json");
+    assert!(json_profile.exists(), "JSON profile not created");
 
     // Unpack YAML → XML
     let output = sf_compact()
@@ -335,13 +335,13 @@ fn pack_with_absolute_paths() {
         "unexpected output: {stdout}"
     );
 
-    // Check that YAML files are inside packed dir
-    let yaml_profile = packed
+    // Check that JSON files are inside packed dir (json is default format)
+    let json_profile = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
+        .join("force-app/main/default/profiles/Admin.profile-meta.json");
     assert!(
-        yaml_profile.exists(),
-        "YAML should be inside output dir, not alongside source"
+        json_profile.exists(),
+        "JSON should be inside output dir, not alongside source"
     );
 }
 
@@ -366,15 +366,15 @@ fn config_init_creates_file() {
     assert!(config_path.exists(), ".sfcompact.yaml should be created");
 
     let content = std::fs::read_to_string(&config_path).unwrap();
-    // Should have smart defaults: order-sensitive types set to json
+    // Should have smart defaults: JSON default, order-insensitive types get yaml
     assert!(
-        content.contains("default_format"),
-        "config should contain default_format"
+        content.contains("default_format: json"),
+        "config should have json as default_format, got: {content}"
     );
-    // Flow is order-sensitive, should be yaml-ordered
+    // Profile is order-insensitive, should be yaml for readability
     assert!(
-        content.contains("Flow: yaml-ordered"),
-        "Flow should be set to yaml-ordered in smart defaults, got: {content}"
+        content.contains("Profile: yaml"),
+        "Profile should be set to yaml in smart defaults, got: {content}"
     );
 }
 
@@ -1136,18 +1136,19 @@ fn config_init_uses_yaml_ordered_for_order_sensitive() {
 
     let content = std::fs::read_to_string(dir.path().join(".sfcompact.yaml")).unwrap();
 
-    // Order-sensitive types should use yaml-ordered
+    // Order-insensitive types should use yaml for readability; order-sensitive use json default
     assert!(
-        content.contains("Flow: yaml-ordered"),
-        "Flow should be yaml-ordered, got: {content}"
+        content.contains("Profile: yaml"),
+        "Profile should be yaml (order-insensitive), got: {content}"
     );
     assert!(
-        content.contains("FlexiPage: yaml-ordered"),
-        "FlexiPage should be yaml-ordered, got: {content}"
+        content.contains("PermissionSet: yaml"),
+        "PermissionSet should be yaml (order-insensitive), got: {content}"
     );
+    // Order-sensitive types like Flow should NOT have an override (they use json default)
     assert!(
-        content.contains("Layout: yaml-ordered"),
-        "Layout should be yaml-ordered, got: {content}"
+        !content.contains("Flow:"),
+        "Flow should not have an override (uses json default), got: {content}"
     );
 }
 
@@ -1339,11 +1340,11 @@ fn diff_detects_modified_files() {
     assert!(output.status.success());
 
     // Corrupt a packed file to simulate stale pack
-    let profile_yaml = packed
+    let profile_json = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
-    assert!(profile_yaml.exists());
-    std::fs::write(&profile_yaml, "# corrupted\n").unwrap();
+        .join("force-app/main/default/profiles/Admin.profile-meta.json");
+    assert!(profile_json.exists());
+    std::fs::write(&profile_json, "# corrupted\n").unwrap();
 
     // Diff should detect the modification
     let output = sf_compact()
@@ -1392,7 +1393,7 @@ fn unpack_with_include_filter() {
             "-o",
             unpacked.path().to_str().unwrap(),
             "--include",
-            "*.profile-meta.yaml",
+            "*.profile-meta.json",
         ])
         .output()
         .expect("failed to unpack with --include");
@@ -1479,11 +1480,11 @@ fn lint_fails_when_stale() {
     assert!(output.status.success());
 
     // Corrupt a packed file
-    let profile_yaml = packed
+    let profile_json = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
-    assert!(profile_yaml.exists());
-    std::fs::write(&profile_yaml, "# corrupted\n").unwrap();
+        .join("force-app/main/default/profiles/Admin.profile-meta.json");
+    assert!(profile_json.exists());
+    std::fs::write(&profile_json, "# corrupted\n").unwrap();
 
     // Lint should fail (exit 1)
     let output = sf_compact()

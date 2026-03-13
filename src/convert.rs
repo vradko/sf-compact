@@ -21,6 +21,10 @@ pub struct ConvertOpts {
     pub format_override: Option<String>,
     /// Only process files modified since last pack (by mtime comparison).
     pub incremental: bool,
+    /// CLI override for preserve_comments (None = use config).
+    pub preserve_comments: Option<bool>,
+    /// CLI override for indent size (None = use config).
+    pub indent: Option<u8>,
 }
 
 pub struct FileStats {
@@ -424,7 +428,9 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             };
             let xml_bytes = xml_content.len() as u64;
 
-            let node = match xml_parser::parse_xml(&xml_content) {
+            let preserve_comments = opts.preserve_comments.unwrap_or(cfg.preserve_comments);
+            let parse_opts = xml_parser::ParseOptions { preserve_comments };
+            let node = match xml_parser::parse_xml_with_options(&xml_content, &parse_opts) {
                 Ok(n) => n,
                 Err(e) => {
                     eprintln!(
@@ -521,6 +527,9 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     let files = find_compact_files_from_opts(opts);
     let root = common_root(opts);
 
+    let cfg = load_config_from_sources(opts).unwrap_or_default();
+    let indent_size = opts.indent.unwrap_or(cfg.indent) as usize;
+
     // Process files in parallel: parse compact → convert to XML
     let results: Vec<Option<UnpackedFile>> = files
         .par_iter()
@@ -565,7 +574,7 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
                 }
             };
 
-            let xml = xml_parser::to_xml(&node);
+            let xml = xml_parser::to_xml_with_indent(&node, indent_size);
             let xml_path = xml_path_for_compact(compact_path, &root, output);
 
             Some(UnpackedFile {
@@ -633,7 +642,9 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
             let xml_bytes = xml_content.len() as u64;
             let xml_tokens = count_tokens(&xml_content);
 
-            let node = match xml_parser::parse_xml(&xml_content) {
+            let preserve_comments = opts.preserve_comments.unwrap_or(cfg.preserve_comments);
+            let parse_opts = xml_parser::ParseOptions { preserve_comments };
+            let node = match xml_parser::parse_xml_with_options(&xml_content, &parse_opts) {
                 Ok(n) => n,
                 Err(e) => {
                     eprintln!(

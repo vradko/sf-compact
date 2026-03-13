@@ -9,6 +9,7 @@ use quick_xml::reader::Reader;
 pub enum XmlValue {
     Text(String),
     Node(XmlNode),
+    Comment(String),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -26,8 +27,20 @@ pub struct XmlNode {
     pub children: Vec<XmlValue>,
 }
 
-/// Parse XML string into an XmlNode tree.
+/// Options controlling XML parsing behavior.
+#[derive(Default)]
+pub struct ParseOptions {
+    pub preserve_comments: bool,
+}
+
+/// Parse XML string into an XmlNode tree (default options: comments stripped).
+#[allow(dead_code)]
 pub fn parse_xml(xml: &str) -> Result<XmlNode> {
+    parse_xml_with_options(xml, &ParseOptions::default())
+}
+
+/// Parse XML string into an XmlNode tree with options.
+pub fn parse_xml_with_options(xml: &str, options: &ParseOptions) -> Result<XmlNode> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
 
@@ -85,6 +98,14 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
                     }
                 }
             }
+            Ok(Event::Comment(ref e)) => {
+                if options.preserve_comments {
+                    let text = e.decode().context("Failed to decode comment")?.to_string();
+                    if let Some(parent) = stack.last_mut() {
+                        parent.children.push(XmlValue::Comment(text));
+                    }
+                }
+            }
             Ok(Event::End(_)) => {
                 let mut node = stack.pop().context("Unexpected closing tag")?;
                 trim_children(&mut node.children);
@@ -98,7 +119,7 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode> {
                 // XML declaration — we regenerate it on unpack
             }
             Ok(Event::Eof) => break,
-            Ok(_) => {} // Comments, PI, etc. — skip
+            Ok(_) => {} // PI, etc. — skip
             Err(e) => anyhow::bail!(
                 "XML parse error at position {}: {e}",
                 reader.error_position()
@@ -136,16 +157,22 @@ fn element_to_node(e: &BytesStart, reader: &Reader<&[u8]>) -> Result<XmlNode> {
     })
 }
 
-/// Serialize XmlNode back to XML string.
+/// Serialize XmlNode back to XML string with default 4-space indent.
+#[allow(dead_code)]
 pub fn to_xml(node: &XmlNode) -> String {
+    to_xml_with_indent(node, 4)
+}
+
+/// Serialize XmlNode back to XML string with configurable indent.
+pub fn to_xml_with_indent(node: &XmlNode, indent_size: usize) -> String {
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    write_node(&mut out, node, 0);
+    write_node(&mut out, node, 0, indent_size);
     out.push('\n');
     out
 }
 
-fn write_node(out: &mut String, node: &XmlNode, indent: usize) {
-    let pad = "    ".repeat(indent);
+fn write_node(out: &mut String, node: &XmlNode, indent: usize, indent_size: usize) {
+    let pad = " ".repeat(indent * indent_size);
 
     out.push_str(&pad);
     out.push('<');
@@ -174,12 +201,24 @@ fn write_node(out: &mut String, node: &XmlNode, indent: usize) {
 
     // If single text child, inline it
     if node.children.len() == 1 {
-        if let XmlValue::Text(t) = &node.children[0] {
-            out.push_str(&escape_text(t));
-            out.push_str("</");
-            out.push_str(&node.tag);
-            out.push('>');
-            return;
+        match &node.children[0] {
+            XmlValue::Text(t) => {
+                out.push_str(&escape_text(t));
+                out.push_str("</");
+                out.push_str(&node.tag);
+                out.push('>');
+                return;
+            }
+            XmlValue::Comment(c) => {
+                out.push_str("<!--");
+                out.push_str(c);
+                out.push_str("-->");
+                out.push_str("</");
+                out.push_str(&node.tag);
+                out.push('>');
+                return;
+            }
+            _ => {}
         }
     }
 
@@ -188,12 +227,20 @@ fn write_node(out: &mut String, node: &XmlNode, indent: usize) {
         match child {
             XmlValue::Text(t) => {
                 out.push_str(&pad);
-                out.push_str("    ");
+                out.push_str(&" ".repeat(indent_size));
                 out.push_str(&escape_text(t));
                 out.push('\n');
             }
             XmlValue::Node(n) => {
-                write_node(out, n, indent + 1);
+                write_node(out, n, indent + 1, indent_size);
+                out.push('\n');
+            }
+            XmlValue::Comment(c) => {
+                out.push_str(&pad);
+                out.push_str(&" ".repeat(indent_size));
+                out.push_str("<!--");
+                out.push_str(c);
+                out.push_str("-->");
                 out.push('\n');
             }
         }
@@ -207,10 +254,12 @@ fn write_node(out: &mut String, node: &XmlNode, indent: usize) {
 /// Trim whitespace from children after an element is fully parsed.
 /// With trim_text(false), we get raw whitespace from indentation.
 /// Rules:
-/// - If children contain any Node elements, remove pure-whitespace Text nodes (indentation)
+/// - If children contain any Node or Comment elements, remove pure-whitespace Text nodes (indentation)
 /// - If children are text-only, trim leading/trailing whitespace from the merged text
 fn trim_children(children: &mut Vec<XmlValue>) {
-    let has_nodes = children.iter().any(|c| matches!(c, XmlValue::Node(_)));
+    let has_nodes = children
+        .iter()
+        .any(|c| matches!(c, XmlValue::Node(_) | XmlValue::Comment(_)));
 
     if has_nodes {
         // Remove pure-whitespace text nodes (indentation between elements)

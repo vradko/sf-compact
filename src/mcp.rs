@@ -120,7 +120,7 @@ fn handle_tools_list() -> Result<Value> {
                         "format": {
                             "type": "string",
                             "enum": ["yaml", "yaml-ordered", "json"],
-                            "description": "Output format: yaml (~49% savings), yaml-ordered (~42%, preserves element order), json (~54% savings). Default: yaml or per-type config."
+                            "description": "Output format: json (~54% savings, default, preserves order), yaml (~49%, human-readable), yaml-ordered (~42%, preserves order in YAML). Default: json or per-type config."
                         },
                         "include": {
                             "type": "string",
@@ -242,6 +242,8 @@ fn call_pack(args: &Value) -> Result<Value> {
         include,
         format_override: format,
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
     let stats = convert::pack(&opts, Path::new(output))?;
 
@@ -277,6 +279,8 @@ fn call_unpack(args: &Value) -> Result<Value> {
         include,
         format_override: None,
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
     let stats = convert::unpack(&opts, Path::new(output))?;
 
@@ -302,6 +306,8 @@ fn call_stats(args: &Value) -> Result<Value> {
         include,
         format_override: None,
         incremental: false,
+        preserve_comments: None,
+        indent: None,
     };
     let stats = convert::stats(&opts)?;
 
@@ -408,9 +414,9 @@ cargo install sf-compact            # From source (Rust required)
 
 ## Output Formats
 
-- **yaml** — grouped arrays, ~49% token savings, best for order-insensitive types
-- **yaml-ordered** — `_children` sequences, ~42% savings, preserves element order
-- **json** — compact single-line, ~54% savings, preserves order
+- **json** (default) — compact single-line, ~54% savings, preserves element order
+- **yaml** — grouped arrays, ~49% savings, best for order-insensitive types (Profile, PermissionSet)
+- **yaml-ordered** — `_children` sequences, ~42% savings, preserves order in YAML format
 
 ## Available Commands
 
@@ -420,7 +426,7 @@ sf-compact pack [source...] [-o output] [--format yaml|yaml-ordered|json] [--inc
 ```
 - `source` — one or more directories or files (default: `force-app`)
 - `-o output` — output directory (default: `.sf-compact`)
-- `--format` — output format override (default: from config or `yaml`)
+- `--format` — output format override (default: from config or `json`)
 - `--include` — glob filter (e.g. `"*.profile-meta.xml"`)
 - `--incremental` — only repack files modified since last pack (by mtime)
 
