@@ -358,12 +358,25 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
 
         let format = effective_format(&short_type, &type_name, &cfg, &opts.format_override);
 
-        let xml_content = fs::read_to_string(xml_path)
-            .with_context(|| format!("Reading {}", xml_path.display()))?;
+        let xml_content = match fs::read_to_string(xml_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Warning: skipping {} (read error: {e})", xml_path.display());
+                continue;
+            }
+        };
         let xml_bytes = xml_content.len() as u64;
 
-        let node = xml_parser::parse_xml(&xml_content)
-            .with_context(|| format!("Parsing {}", xml_path.display()))?;
+        let node = match xml_parser::parse_xml(&xml_content) {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!(
+                    "Warning: skipping {} (invalid XML: {e})",
+                    xml_path.display()
+                );
+                continue;
+            }
+        };
 
         let (compact_content, ext) = if format == "json" {
             let json = json_writer::xml_to_json(&node)
@@ -456,13 +469,26 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
     let mut stats = ConvertStats::new();
 
     for xml_path in &files {
-        let xml_content = fs::read_to_string(xml_path)
-            .with_context(|| format!("Reading {}", xml_path.display()))?;
+        let xml_content = match fs::read_to_string(xml_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Warning: skipping {} (read error: {e})", xml_path.display());
+                continue;
+            }
+        };
         let xml_bytes = xml_content.len() as u64;
         let xml_tokens = count_tokens(&xml_content);
 
-        let node = xml_parser::parse_xml(&xml_content)
-            .with_context(|| format!("Parsing {}", xml_path.display()))?;
+        let node = match xml_parser::parse_xml(&xml_content) {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!(
+                    "Warning: skipping {} (invalid XML: {e})",
+                    xml_path.display()
+                );
+                continue;
+            }
+        };
 
         let yaml = yaml_writer::xml_to_yaml(&node)
             .with_context(|| format!("Converting {}", xml_path.display()))?;
