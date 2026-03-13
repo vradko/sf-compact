@@ -115,6 +115,20 @@ enum Commands {
         #[arg(long)]
         include: Option<String>,
     },
+    /// Check that compact files are up-to-date (exit 1 if stale). Use in CI pipelines.
+    Lint {
+        /// Source path: directory or specific file(s)
+        #[arg(default_value = "force-app")]
+        source: Vec<PathBuf>,
+
+        /// Packed directory to compare against
+        #[arg(short, long, default_value = ".sf-compact")]
+        output: PathBuf,
+
+        /// Only include files matching this glob pattern
+        #[arg(long)]
+        include: Option<String>,
+    },
     /// Manage .sfcompact.yaml configuration
     Config {
         #[command(subcommand)]
@@ -323,6 +337,37 @@ fn main() -> Result<()> {
                     result.unchanged_files,
                 );
                 println!("Run `sf-compact pack` to update.");
+            }
+        }
+        Commands::Lint {
+            source,
+            output,
+            include,
+        } => {
+            let result = diff::diff(&source, &output, include.as_deref())?;
+            let total_changes =
+                result.new_files.len() + result.modified_files.len() + result.deleted_files.len();
+
+            if total_changes == 0 {
+                println!("OK: {} files up to date", result.unchanged_files);
+            } else {
+                for f in &result.new_files {
+                    eprintln!("  + {f}  (not packed)");
+                }
+                for f in &result.modified_files {
+                    eprintln!("  ~ {f}  (stale)");
+                }
+                for f in &result.deleted_files {
+                    eprintln!("  - {f}  (orphaned)");
+                }
+                eprintln!(
+                    "\n{} stale ({} new, {} modified, {} orphaned)",
+                    total_changes,
+                    result.new_files.len(),
+                    result.modified_files.len(),
+                    result.deleted_files.len(),
+                );
+                std::process::exit(1);
             }
         }
         Commands::McpServe => {
