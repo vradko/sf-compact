@@ -1606,6 +1606,165 @@ fn stats_respects_config_format() {
     );
 }
 
+// ─── Chaos test fixes ──────────────────────────────────────────
+
+#[test]
+fn pack_format_switch_cleans_stale_files() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack as yaml first
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "yaml",
+        ])
+        .output()
+        .expect("failed to pack yaml");
+    assert!(output.status.success());
+
+    // Verify .yaml files exist
+    let yaml_count = walkdir::WalkDir::new(packed.path())
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "yaml"))
+        .count();
+    assert!(yaml_count > 0, "should have yaml files");
+
+    // Re-pack as json
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to pack json");
+    assert!(output.status.success());
+
+    // Old .yaml files should be cleaned up
+    let yaml_count = walkdir::WalkDir::new(packed.path())
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "yaml"))
+        .count();
+    assert_eq!(yaml_count, 0, "stale yaml files should be removed");
+
+    // .json files should exist
+    let json_count = walkdir::WalkDir::new(packed.path())
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+        .count();
+    assert!(json_count > 0, "should have json files");
+}
+
+#[test]
+fn diff_single_file_no_false_deleted() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack all files
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to pack");
+    assert!(output.status.success());
+
+    // Diff with a single file source — should NOT falsely report other
+    // packed files as "deleted"
+    let output = sf_compact()
+        .args([
+            "diff",
+            &format!(
+                "{}/force-app/main/default/profiles/Admin.profile-meta.xml",
+                fixtures.display()
+            ),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to diff");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should not list any files as deleted (the "- file (packed file has no source XML)" lines)
+    assert!(
+        !stdout.contains("(packed file has no source"),
+        "single-file diff should not report false deletions, got: {stdout}"
+    );
+    // The summary should show 0 deleted
+    assert!(
+        stdout.contains("0 deleted") || !stdout.contains("deleted"),
+        "single-file diff should have 0 deleted, got: {stdout}"
+    );
+}
+
+#[test]
+fn config_set_rejects_empty_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join(".sfcompact.yaml"), "default_format: yaml\n").unwrap();
+
+    let output = sf_compact()
+        .args(["config", "set", "", "yaml"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("failed to run");
+    assert!(!output.status.success(), "should reject empty key");
+}
+
+#[test]
+fn config_skip_rejects_empty_type() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join(".sfcompact.yaml"), "default_format: yaml\n").unwrap();
+
+    let output = sf_compact()
+        .args(["config", "skip", ""])
+        .current_dir(tmp.path())
+        .output()
+        .expect("failed to run");
+    assert!(!output.status.success(), "should reject empty type name");
+}
+
+#[test]
+fn config_invalid_format_in_file_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    copy_dir_recursive(Path::new("tests/fixtures"), &tmp.path().join("force-app"));
+
+    // Write config with invalid format
+    std::fs::write(
+        tmp.path().join(".sfcompact.yaml"),
+        "default_format: banana\n",
+    )
+    .unwrap();
+
+    let output = sf_compact()
+        .args(["pack", "force-app"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("failed to run");
+    assert!(
+        !output.status.success(),
+        "should reject invalid format in config file"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Invalid") && stderr.contains("banana"),
+        "should mention the invalid format: {stderr}"
+    );
+}
+
 /// Helper to recursively copy a directory.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
     std::fs::create_dir_all(dst).unwrap();

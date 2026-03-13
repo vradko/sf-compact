@@ -434,6 +434,11 @@ fn config_set(pairs: &[String]) -> Result<()> {
         let key = &chunk[0];
         let value = &chunk[1];
 
+        // Validate key is not empty
+        if key.is_empty() {
+            anyhow::bail!("Type name cannot be empty");
+        }
+
         // Validate format value
         if !constants::VALID_FORMATS.contains(&value.as_str()) {
             anyhow::bail!(
@@ -465,6 +470,10 @@ fn config_skip(type_name: &str) -> Result<()> {
     } else {
         config::SfCompactConfig::default()
     };
+
+    if type_name.is_empty() {
+        anyhow::bail!("Type name cannot be empty");
+    }
 
     if !cfg.skip.contains(&type_name.to_string()) {
         cfg.skip.push(type_name.to_string());

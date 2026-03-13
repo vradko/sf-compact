@@ -67,6 +67,29 @@ impl SfCompactConfig {
     pub fn should_skip(&self, type_name: &str) -> bool {
         self.skip.iter().any(|s| s == type_name)
     }
+
+    /// Validate that all format values in the config are valid.
+    pub fn validate(&self) -> Result<()> {
+        let valid = constants::VALID_FORMATS;
+        if !valid.contains(&self.default_format.as_str()) {
+            anyhow::bail!(
+                "Invalid default_format '{}' in config. Valid formats: {}",
+                self.default_format,
+                valid.join(", ")
+            );
+        }
+        for (type_name, format) in &self.formats {
+            if !valid.contains(&format.as_str()) {
+                anyhow::bail!(
+                    "Invalid format '{}' for type '{}' in config. Valid formats: {}",
+                    format,
+                    type_name,
+                    valid.join(", ")
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Find `.sfcompact.yaml` starting from `start_dir` and walking up to parent directories.
