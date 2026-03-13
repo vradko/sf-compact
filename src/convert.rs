@@ -339,17 +339,21 @@ fn effective_format(
 }
 
 /// Load config searching from source paths first, then cwd as fallback.
+/// Validates that all format values in the config are valid.
 pub fn load_config_from_sources(opts: &ConvertOpts) -> Result<config::SfCompactConfig> {
     let root = common_root(opts);
     // Try loading from source directory first
     if let Ok(cfg) = config::load_config(&root) {
         if config::find_config_file(&root).is_some() {
+            cfg.validate()?;
             return Ok(cfg);
         }
     }
     // Fallback to cwd
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    config::load_config(&cwd)
+    let cfg = config::load_config(&cwd)?;
+    cfg.validate()?;
+    Ok(cfg)
 }
 
 /// Pack: XML → compact format (YAML or JSON)
@@ -411,6 +415,17 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             fs::create_dir_all(parent)?;
         }
         fs::write(&out_path, &compact_content)?;
+
+        // Clean up stale file from previous format (e.g. .yaml when switching to .json)
+        let stale_ext = if ext == constants::FORMAT_JSON {
+            constants::FORMAT_YAML
+        } else {
+            constants::FORMAT_JSON
+        };
+        let stale_path = compact_path_for_xml(xml_path, &root, output, stale_ext);
+        if stale_path.exists() {
+            let _ = fs::remove_file(&stale_path);
+        }
 
         accumulate_stats(&mut stats, xml_path, &root, xml_bytes, compact_bytes, 0, 0);
     }

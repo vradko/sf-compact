@@ -18,6 +18,16 @@ Salesforce metadata XML is extremely verbose — profiles, permission sets, flow
 - **yaml-ordered** — uses `_children` sequences to preserve exact element order. Best for order-sensitive types (Flow, FlexiPage, Layout).
 - **json** — compact single-line JSON with arrays. Preserves order, fewest tokens, less human-readable.
 
+## What "semantically lossless" means
+
+The roundtrip preserves all data that Salesforce cares about. These XML features are normalized:
+
+- **Whitespace trimming** — leading/trailing whitespace in text nodes is trimmed (safe for SF metadata)
+- **Comments stripped** — `<!-- ... -->` are removed (Salesforce metadata doesn't use comments)
+- **CDATA unwrapped** — `<![CDATA[...]]>` becomes escaped text (`&lt;`, `&amp;`) — semantically identical
+- **Empty elements** — `<tag></tag>` may become `<tag/>` — semantically identical
+- **Element order** — may change with `yaml` format; use `yaml-ordered` or `json` to preserve order
+
 ## Before / After
 
 **XML (848 tokens):**

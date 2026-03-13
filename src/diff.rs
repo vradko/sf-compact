@@ -95,8 +95,11 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
         }
     }
 
-    // Check for deleted files (packed files with no corresponding XML)
-    if packed_dir.exists() {
+    // Check for deleted files (packed files with no corresponding XML).
+    // Only check when all sources are directories — orphan detection doesn't
+    // make sense when diffing individual files.
+    let all_dirs = sources.iter().all(|s| s.is_dir());
+    if all_dirs && packed_dir.exists() {
         let packed_opts = convert::ConvertOpts {
             paths: vec![packed_dir.to_path_buf()],
             include: include.map(|s| s.to_string()),
@@ -114,24 +117,7 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
                 .replace("-meta.yaml", "-meta.xml")
                 .replace("-meta.json", "-meta.xml");
 
-            // Check if any source contains this XML.
-            // If source is a file (not a dir), compare against the file's parent dir.
-            let found = sources.iter().any(|src| {
-                if src.is_file() {
-                    // For single-file sources, check if the file itself matches
-                    src.file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|name| {
-                            Path::new(&xml_name)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .is_some_and(|xn| xn == name)
-                        })
-                        .unwrap_or(false)
-                } else {
-                    src.join(&xml_name).exists()
-                }
-            });
+            let found = sources.iter().any(|src| src.join(&xml_name).exists());
             if !found {
                 result
                     .deleted_files

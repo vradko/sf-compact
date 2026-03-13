@@ -393,7 +393,7 @@ pub fn generate_instructions() -> String {
 
 sf-compact converts Salesforce metadata XML files into compact YAML or JSON formats that are semantically equivalent but use significantly fewer tokens (42–54% reduction). This reduces cost and improves performance when AI tools read or analyze Salesforce metadata.
 
-The conversion is **semantically lossless for Salesforce metadata** — you can always convert back to XML. Element order within a parent may change unless you use `yaml-ordered` or `json` format. Note: leading/trailing whitespace in text nodes is trimmed, which is safe for Salesforce metadata but not for arbitrary XML.
+The conversion is **semantically lossless for Salesforce metadata** — you can always convert back to XML. Normalizations: element order may change (use `yaml-ordered` or `json` to preserve), leading/trailing whitespace in text nodes is trimmed, XML comments and CDATA sections are normalized, empty elements may change form (`<tag></tag>` ↔ `<tag/>`). All safe for Salesforce metadata.
 
 ## Install
 
