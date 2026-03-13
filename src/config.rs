@@ -1,3 +1,4 @@
+use crate::constants;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -18,7 +19,7 @@ pub struct SfCompactConfig {
 }
 
 fn default_format() -> String {
-    "yaml".to_string()
+    constants::FORMAT_YAML.to_string()
 }
 
 impl Default for SfCompactConfig {
@@ -40,7 +41,7 @@ impl SfCompactConfig {
         let mut formats = BTreeMap::new();
         for (type_name, order_sensitive, _supported) in entries {
             if *order_sensitive {
-                formats.insert(type_name.clone(), "yaml-ordered".to_string());
+                formats.insert(type_name.clone(), constants::FORMAT_YAML_ORDERED.to_string());
             }
         }
         Self {

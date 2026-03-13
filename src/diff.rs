@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config;
+use crate::constants;
 use crate::convert;
 use crate::json_writer;
 use crate::metadata_types;
@@ -54,7 +55,11 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
         }
 
         let format = convert::effective_format_for(&short_type, &type_name, &cfg, &None);
-        let ext = if format == "json" { "json" } else { "yaml" };
+        let ext = if format == constants::FORMAT_JSON {
+            constants::FORMAT_JSON
+        } else {
+            constants::FORMAT_YAML
+        };
         let compact_path = convert::compact_path_for(xml_path, &root, packed_dir, ext);
 
         let relative = xml_path
@@ -74,9 +79,9 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
         let node = xml_parser::parse_xml(&xml_content)
             .with_context(|| format!("Parsing {}", xml_path.display()))?;
 
-        let fresh = if format == "json" {
+        let fresh = if format == constants::FORMAT_JSON {
             json_writer::xml_to_json(&node)?
-        } else if format == "yaml-ordered" {
+        } else if format == constants::FORMAT_YAML_ORDERED {
             yaml_writer::xml_to_yaml_ordered(&node)?
         } else {
             yaml_writer::xml_to_yaml(&node)?

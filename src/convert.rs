@@ -1,4 +1,5 @@
 use crate::config;
+use crate::constants;
 use crate::json_writer;
 use crate::metadata_types;
 use crate::xml_parser;
@@ -281,7 +282,7 @@ fn compact_path_for_xml(
 ) -> PathBuf {
     let relative = safe_relative(xml_path, source_root);
     let mut out = output_root.join(relative);
-    let ext = if format == "json" {
+    let ext = if format == constants::FORMAT_JSON {
         "-meta.json"
     } else {
         "-meta.yaml"
@@ -330,7 +331,7 @@ fn effective_format(
     }
     let format = cfg.format_for_type(type_name);
     let format_alt = cfg.format_for_type(short_type);
-    if format != "yaml" {
+    if format != constants::FORMAT_YAML {
         format.to_string()
     } else {
         format_alt.to_string()
@@ -378,11 +379,11 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             }
         };
 
-        let (compact_content, ext) = if format == "json" {
+        let (compact_content, ext) = if format == constants::FORMAT_JSON {
             let json = json_writer::xml_to_json(&node)
                 .with_context(|| format!("Converting {} to JSON", xml_path.display()))?;
-            (json, "json")
-        } else if format == "yaml-ordered" {
+            (json, constants::FORMAT_JSON)
+        } else if format == constants::FORMAT_YAML_ORDERED {
             let yaml = yaml_writer::xml_to_yaml_ordered(&node)
                 .with_context(|| format!("Converting {} to YAML (ordered)", xml_path.display()))?;
             (yaml, "yaml")
@@ -509,38 +510,6 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
     Ok(stats)
 }
 
-/// Single-path stats for MCP and backward compatibility.
-pub fn stats_path(source: &Path) -> Result<ConvertStats> {
-    stats(&ConvertOpts {
-        paths: vec![source.to_path_buf()],
-        include: None,
-        format_override: None,
-    })
-}
-
-/// Single-path pack for MCP.
-pub fn pack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
-    pack(
-        &ConvertOpts {
-            paths: vec![source.to_path_buf()],
-            include: None,
-            format_override: None,
-        },
-        output,
-    )
-}
-
-/// Single-path unpack for MCP.
-pub fn unpack_path(source: &Path, output: &Path) -> Result<ConvertStats> {
-    unpack(
-        &ConvertOpts {
-            paths: vec![source.to_path_buf()],
-            include: None,
-            format_override: None,
-        },
-        output,
-    )
-}
 
 // ─── Public accessors for diff module ────────────────────────────
 

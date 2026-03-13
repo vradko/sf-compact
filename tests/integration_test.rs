@@ -1409,6 +1409,23 @@ fn unpack_with_include_filter() {
     );
 }
 
+#[test]
+fn invalid_format_rejected() {
+    let output = sf_compact()
+        .args(["pack", "tests/fixtures", "--format", "foobar"])
+        .output()
+        .expect("failed to run");
+    assert!(
+        !output.status.success(),
+        "should reject invalid format"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Invalid format") && stderr.contains("foobar"),
+        "should show error about invalid format: {stderr}"
+    );
+}
+
 /// Helper to recursively copy a directory.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
     std::fs::create_dir_all(dst).unwrap();

@@ -63,14 +63,24 @@ fieldPermissions:
 
 ## Install
 
-### From source (Rust required)
+### npm (recommended — no build required)
 ```bash
-cargo install --path .
+npm install -g sf-compact-cli
 ```
 
-### From crates.io
+### Homebrew (macOS / Linux)
+```bash
+brew install vradko/tap/sf-compact
+```
+
+### From crates.io (Rust required)
 ```bash
 cargo install sf-compact
+```
+
+### From source
+```bash
+cargo install --path .
 ```
 
 ## Usage

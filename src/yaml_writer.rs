@@ -1,3 +1,4 @@
+use crate::constants;
 use crate::xml_parser::{XmlNode, XmlValue};
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -26,7 +27,7 @@ pub fn yaml_to_xml_node(yaml: &str) -> Result<XmlNode> {
     let map = value
         .as_mapping()
         .ok_or_else(|| anyhow::anyhow!("Expected YAML mapping at root"))?;
-    let has_children = map.contains_key(Value::String("_children".to_string()));
+    let has_children = map.contains_key(Value::String(constants::KEY_CHILDREN.to_string()));
     if has_children {
         yaml_ordered_value_to_node(&value)
     } else {
@@ -41,13 +42,13 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
 
     // Always store the tag
     map.insert(
-        Value::String("_tag".to_string()),
+        Value::String(constants::KEY_TAG.to_string()),
         Value::String(node.tag.clone()),
     );
 
     // Store namespace if present
     if let Some(ns) = &node.namespace {
-        map.insert(Value::String("_ns".to_string()), Value::String(ns.clone()));
+        map.insert(Value::String(constants::KEY_NS.to_string()), Value::String(ns.clone()));
     }
 
     // Store attributes if present
@@ -57,7 +58,7 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
             attrs_map.insert(Value::String(k.clone()), Value::String(v.clone()));
         }
         map.insert(
-            Value::String("_attrs".to_string()),
+            Value::String(constants::KEY_ATTRS.to_string()),
             Value::Mapping(attrs_map),
         );
     }
@@ -70,7 +71,7 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
     // Check if this is a simple text-only element
     if node.children.len() == 1 {
         if let XmlValue::Text(t) = &node.children[0] {
-            map.insert(Value::String("_text".to_string()), Value::String(t.clone()));
+            map.insert(Value::String(constants::KEY_TEXT.to_string()), Value::String(t.clone()));
             return Value::Mapping(map);
         }
     }
@@ -92,12 +93,12 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
     if !text_parts.is_empty() {
         if text_parts.len() == 1 {
             map.insert(
-                Value::String("_text".to_string()),
+                Value::String(constants::KEY_TEXT.to_string()),
                 Value::String(text_parts.into_iter().next().unwrap()),
             );
         } else {
             map.insert(
-                Value::String("_text".to_string()),
+                Value::String(constants::KEY_TEXT.to_string()),
                 Value::Sequence(text_parts.into_iter().map(Value::String).collect()),
             );
         }
@@ -131,7 +132,7 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
             // Single complex node — recurse
             let child_val = node_to_yaml_value(nodes[0]);
             if let Value::Mapping(mut m) = child_val {
-                m.remove(Value::String("_tag".to_string()));
+                m.remove(Value::String(constants::KEY_TAG.to_string()));
                 map.insert(Value::String(tag.clone()), Value::Mapping(m));
             }
         } else {
@@ -141,7 +142,7 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
                 .map(|n| {
                     let v = node_to_yaml_value(n);
                     if let Value::Mapping(mut m) = v {
-                        m.remove(Value::String("_tag".to_string()));
+                        m.remove(Value::String(constants::KEY_TAG.to_string()));
                         Value::Mapping(m)
                     } else {
                         v
@@ -250,18 +251,18 @@ fn yaml_value_to_node(value: &Value) -> Result<XmlNode> {
         .ok_or_else(|| anyhow::anyhow!("Expected YAML mapping at root"))?;
 
     let tag = map
-        .get(Value::String("_tag".to_string()))
+        .get(Value::String(constants::KEY_TAG.to_string()))
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing _tag in YAML node"))?
         .to_string();
 
     let namespace = map
-        .get(Value::String("_ns".to_string()))
+        .get(Value::String(constants::KEY_NS.to_string()))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
     let mut attrs = IndexMap::new();
-    if let Some(Value::Mapping(a)) = map.get(Value::String("_attrs".to_string())) {
+    if let Some(Value::Mapping(a)) = map.get(Value::String(constants::KEY_ATTRS.to_string())) {
         for (k, v) in a {
             if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
                 attrs.insert(key.to_string(), val.to_string());
@@ -272,7 +273,7 @@ fn yaml_value_to_node(value: &Value) -> Result<XmlNode> {
     let mut children = Vec::new();
 
     // Handle _text
-    if let Some(text_val) = map.get(Value::String("_text".to_string())) {
+    if let Some(text_val) = map.get(Value::String(constants::KEY_TEXT.to_string())) {
         match text_val {
             Value::String(s) => children.push(XmlValue::Text(s.clone())),
             Value::Sequence(arr) => {
@@ -289,7 +290,7 @@ fn yaml_value_to_node(value: &Value) -> Result<XmlNode> {
     }
 
     // Process all other keys as child elements
-    let reserved = ["_tag", "_ns", "_attrs", "_text"];
+    let reserved = [constants::KEY_TAG, constants::KEY_NS, constants::KEY_ATTRS, constants::KEY_TEXT];
     for (key, val) in map {
         let key_str = match key.as_str() {
             Some(s) => s,
@@ -337,9 +338,9 @@ fn reconstruct_child_node(tag: &str, value: &Value) -> Result<XmlNode> {
     match value {
         Value::Mapping(m) => {
             // Check if this mapping has meta keys (complex node) or just kv pairs (simple node)
-            let has_meta_keys = m.contains_key(Value::String("_ns".to_string()))
-                || m.contains_key(Value::String("_attrs".to_string()))
-                || m.contains_key(Value::String("_text".to_string()));
+            let has_meta_keys = m.contains_key(Value::String(constants::KEY_NS.to_string()))
+                || m.contains_key(Value::String(constants::KEY_ATTRS.to_string()))
+                || m.contains_key(Value::String(constants::KEY_TEXT.to_string()));
 
             // Also check if any values are themselves mappings/sequences — that means complex children
             let has_complex_values = m
@@ -350,7 +351,7 @@ fn reconstruct_child_node(tag: &str, value: &Value) -> Result<XmlNode> {
                 // Complex node — add _tag back and recurse
                 let mut full_map = serde_yaml::Mapping::new();
                 full_map.insert(
-                    Value::String("_tag".to_string()),
+                    Value::String(constants::KEY_TAG.to_string()),
                     Value::String(tag.to_string()),
                 );
                 for (k, v) in m {
@@ -415,12 +416,12 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
     let mut map = serde_yaml::Mapping::new();
 
     map.insert(
-        Value::String("_tag".to_string()),
+        Value::String(constants::KEY_TAG.to_string()),
         Value::String(node.tag.clone()),
     );
 
     if let Some(ns) = &node.namespace {
-        map.insert(Value::String("_ns".to_string()), Value::String(ns.clone()));
+        map.insert(Value::String(constants::KEY_NS.to_string()), Value::String(ns.clone()));
     }
 
     if !node.attrs.is_empty() {
@@ -429,7 +430,7 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
             attrs_map.insert(Value::String(k.clone()), Value::String(v.clone()));
         }
         map.insert(
-            Value::String("_attrs".to_string()),
+            Value::String(constants::KEY_ATTRS.to_string()),
             Value::Mapping(attrs_map),
         );
     }
@@ -441,7 +442,7 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
     // Single text child
     if node.children.len() == 1 {
         if let XmlValue::Text(t) = &node.children[0] {
-            map.insert(Value::String("_text".to_string()), Value::String(t.clone()));
+            map.insert(Value::String(constants::KEY_TEXT.to_string()), Value::String(t.clone()));
             return Value::Mapping(map);
         }
     }
@@ -459,12 +460,12 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
     if !text_parts.is_empty() {
         if text_parts.len() == 1 {
             map.insert(
-                Value::String("_text".to_string()),
+                Value::String(constants::KEY_TEXT.to_string()),
                 Value::String(text_parts.into_iter().next().unwrap()),
             );
         } else {
             map.insert(
-                Value::String("_text".to_string()),
+                Value::String(constants::KEY_TEXT.to_string()),
                 Value::Sequence(text_parts.into_iter().map(Value::String).collect()),
             );
         }
@@ -482,7 +483,7 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
 
     if !child_values.is_empty() {
         map.insert(
-            Value::String("_children".to_string()),
+            Value::String(constants::KEY_CHILDREN.to_string()),
             Value::Sequence(child_values),
         );
     }
@@ -512,7 +513,7 @@ fn child_node_to_yaml_ordered(node: &XmlNode) -> Value {
     // Complex node → {tag: {_children: [...], ...}}
     let mut inner = node_to_yaml_ordered_value(node);
     if let Value::Mapping(ref mut m) = inner {
-        m.remove(Value::String("_tag".to_string()));
+        m.remove(Value::String(constants::KEY_TAG.to_string()));
     }
     let mut m = serde_yaml::Mapping::new();
     m.insert(Value::String(node.tag.clone()), inner);
@@ -527,18 +528,18 @@ fn yaml_ordered_value_to_node(value: &Value) -> Result<XmlNode> {
         .ok_or_else(|| anyhow::anyhow!("Expected YAML mapping at root"))?;
 
     let tag = map
-        .get(Value::String("_tag".to_string()))
+        .get(Value::String(constants::KEY_TAG.to_string()))
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing _tag in YAML ordered node"))?
         .to_string();
 
     let namespace = map
-        .get(Value::String("_ns".to_string()))
+        .get(Value::String(constants::KEY_NS.to_string()))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
     let mut attrs = IndexMap::new();
-    if let Some(Value::Mapping(a)) = map.get(Value::String("_attrs".to_string())) {
+    if let Some(Value::Mapping(a)) = map.get(Value::String(constants::KEY_ATTRS.to_string())) {
         for (k, v) in a {
             if let (Some(key), Some(val)) = (k.as_str(), v.as_str()) {
                 attrs.insert(key.to_string(), val.to_string());
@@ -549,7 +550,7 @@ fn yaml_ordered_value_to_node(value: &Value) -> Result<XmlNode> {
     let mut children = Vec::new();
 
     // Handle _text
-    if let Some(text_val) = map.get(Value::String("_text".to_string())) {
+    if let Some(text_val) = map.get(Value::String(constants::KEY_TEXT.to_string())) {
         match text_val {
             Value::String(s) => children.push(XmlValue::Text(s.clone())),
             Value::Sequence(arr) => {
@@ -566,7 +567,7 @@ fn yaml_ordered_value_to_node(value: &Value) -> Result<XmlNode> {
     }
 
     // Handle _children array (order-preserving)
-    if let Some(Value::Sequence(arr)) = map.get(Value::String("_children".to_string())) {
+    if let Some(Value::Sequence(arr)) = map.get(Value::String(constants::KEY_CHILDREN.to_string())) {
         for item in arr {
             let child = reconstruct_child_from_yaml_ordered(item)?;
             children.push(XmlValue::Node(child));
@@ -617,16 +618,16 @@ fn reconstruct_child_from_yaml_ordered(value: &Value) -> Result<XmlNode> {
         }),
         // Mapping → could be kv node or complex node with _children
         Value::Mapping(m) => {
-            let has_children_key = m.contains_key(Value::String("_children".to_string()));
-            let has_ns = m.contains_key(Value::String("_ns".to_string()));
-            let has_attrs = m.contains_key(Value::String("_attrs".to_string()));
-            let has_text = m.contains_key(Value::String("_text".to_string()));
+            let has_children_key = m.contains_key(Value::String(constants::KEY_CHILDREN.to_string()));
+            let has_ns = m.contains_key(Value::String(constants::KEY_NS.to_string()));
+            let has_attrs = m.contains_key(Value::String(constants::KEY_ATTRS.to_string()));
+            let has_text = m.contains_key(Value::String(constants::KEY_TEXT.to_string()));
 
             if has_children_key || has_ns || has_attrs || has_text {
                 // Complex node — add _tag and recurse
                 let mut full_map = serde_yaml::Mapping::new();
                 full_map.insert(
-                    Value::String("_tag".to_string()),
+                    Value::String(constants::KEY_TAG.to_string()),
                     Value::String(tag.to_string()),
                 );
                 for (k, v) in m {

@@ -1,4 +1,5 @@
 mod config;
+mod constants;
 mod convert;
 mod diff;
 mod json_writer;
@@ -153,6 +154,19 @@ enum ConfigAction {
     Show,
 }
 
+fn validate_format(format: &Option<String>) -> Result<()> {
+    if let Some(fmt) = format {
+        if !constants::VALID_FORMATS.contains(&fmt.as_str()) {
+            anyhow::bail!(
+                "Invalid format '{}'. Valid formats: {}",
+                fmt,
+                constants::VALID_FORMATS.join(", ")
+            );
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -163,6 +177,7 @@ fn main() -> Result<()> {
             include,
             format,
         } => {
+            validate_format(&format)?;
             let opts = convert::ConvertOpts {
                 paths: source,
                 include,
@@ -208,7 +223,7 @@ fn main() -> Result<()> {
             println!();
             println!(
                 "  {:>40}    {:>10}    {:>10}    {:>8}",
-                "", "XML (now)", "YAML (after)", "savings"
+                "", "XML (now)", "compact (after)", "savings"
             );
             println!("  {}", "-".repeat(80));
             println!(
@@ -271,6 +286,7 @@ fn main() -> Result<()> {
             include,
             format,
         } => {
+            validate_format(&format)?;
             watch::watch(&source, &output, include, format)?;
         }
         Commands::Diff {
