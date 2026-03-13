@@ -434,6 +434,16 @@ fn config_set(pairs: &[String]) -> Result<()> {
         let key = &chunk[0];
         let value = &chunk[1];
 
+        // Validate format value
+        if !constants::VALID_FORMATS.contains(&value.as_str()) {
+            anyhow::bail!(
+                "Invalid format '{}' for '{}'. Valid formats: {}",
+                value,
+                key,
+                constants::VALID_FORMATS.join(", ")
+            );
+        }
+
         if key == "default" {
             cfg.default_format = value.clone();
         } else {

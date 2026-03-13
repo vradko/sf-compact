@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::config;
 use crate::constants;
 use crate::convert;
 use crate::json_writer;
@@ -36,8 +35,7 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
     let xml_files = convert::find_sf_xml_files(&opts);
     let root = convert::common_root_from_opts(&opts);
 
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let cfg = config::load_config(&cwd).unwrap_or_default();
+    let cfg = convert::load_config_from_sources(&opts)?;
 
     let mut result = DiffResult {
         new_files: Vec::new(),
@@ -116,8 +114,24 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
                 .replace("-meta.yaml", "-meta.xml")
                 .replace("-meta.json", "-meta.xml");
 
-            // Check if any source contains this XML
-            let found = sources.iter().any(|src| src.join(&xml_name).exists());
+            // Check if any source contains this XML.
+            // If source is a file (not a dir), compare against the file's parent dir.
+            let found = sources.iter().any(|src| {
+                if src.is_file() {
+                    // For single-file sources, check if the file itself matches
+                    src.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|name| {
+                            Path::new(&xml_name)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .is_some_and(|xn| xn == name)
+                        })
+                        .unwrap_or(false)
+                } else {
+                    src.join(&xml_name).exists()
+                }
+            });
             if !found {
                 result
                     .deleted_files

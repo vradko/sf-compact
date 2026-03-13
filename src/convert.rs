@@ -338,6 +338,20 @@ fn effective_format(
     }
 }
 
+/// Load config searching from source paths first, then cwd as fallback.
+pub fn load_config_from_sources(opts: &ConvertOpts) -> Result<config::SfCompactConfig> {
+    let root = common_root(opts);
+    // Try loading from source directory first
+    if let Ok(cfg) = config::load_config(&root) {
+        if config::find_config_file(&root).is_some() {
+            return Ok(cfg);
+        }
+    }
+    // Fallback to cwd
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    config::load_config(&cwd)
+}
+
 /// Pack: XML → compact format (YAML or JSON)
 pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     validate_paths(&opts.paths)?;
@@ -345,9 +359,7 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     let root = common_root(opts);
     let mut stats = ConvertStats::new();
 
-    // Load config from current directory (or parent dirs)
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let cfg = config::load_config(&cwd).unwrap_or_default();
+    let cfg = load_config_from_sources(opts)?;
 
     for xml_path in &files {
         // Check if this type should be skipped
@@ -463,13 +475,24 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
 }
 
 /// Stats: preview without writing, with real token counting.
+/// Respects config and format_override to match what pack would produce.
 pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
     validate_paths(&opts.paths)?;
     let files = find_sf_xml_files_from_opts(opts);
     let root = common_root(opts);
     let mut stats = ConvertStats::new();
 
+    let cfg = load_config_from_sources(opts)?;
+
     for xml_path in &files {
+        let short_type = metadata_type(xml_path);
+        let type_name = manifest_type_name(&short_type);
+        if cfg.should_skip(&type_name) || cfg.should_skip(&short_type) {
+            continue;
+        }
+
+        let format = effective_format(&short_type, &type_name, &cfg, &opts.format_override);
+
         let xml_content = match fs::read_to_string(xml_path) {
             Ok(c) => c,
             Err(e) => {
@@ -491,19 +514,27 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
             }
         };
 
-        let yaml = yaml_writer::xml_to_yaml(&node)
-            .with_context(|| format!("Converting {}", xml_path.display()))?;
-        let yaml_bytes = yaml.len() as u64;
-        let yaml_tokens = count_tokens(&yaml);
+        let compact = if format == constants::FORMAT_JSON {
+            json_writer::xml_to_json(&node)
+                .with_context(|| format!("Converting {}", xml_path.display()))?
+        } else if format == constants::FORMAT_YAML_ORDERED {
+            yaml_writer::xml_to_yaml_ordered(&node)
+                .with_context(|| format!("Converting {}", xml_path.display()))?
+        } else {
+            yaml_writer::xml_to_yaml(&node)
+                .with_context(|| format!("Converting {}", xml_path.display()))?
+        };
+        let compact_bytes = compact.len() as u64;
+        let compact_tokens = count_tokens(&compact);
 
         accumulate_stats(
             &mut stats,
             xml_path,
             &root,
             xml_bytes,
-            yaml_bytes,
+            compact_bytes,
             xml_tokens,
-            yaml_tokens,
+            compact_tokens,
         );
     }
 

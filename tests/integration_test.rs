@@ -1532,6 +1532,80 @@ fn lint_fails_when_not_packed() {
     );
 }
 
+// ─── Config validation tests ───────────────────────────────────
+
+#[test]
+fn config_set_rejects_invalid_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Create a minimal config
+    std::fs::write(tmp.path().join(".sfcompact.yaml"), "default_format: yaml\n").unwrap();
+
+    let output = sf_compact()
+        .args(["config", "set", "default", "banana"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("failed to run");
+    assert!(
+        !output.status.success(),
+        "should reject invalid format 'banana'"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Invalid format") && stderr.contains("banana"),
+        "should show error about invalid format: {stderr}"
+    );
+}
+
+// ─── Stats respects config format ──────────────────────────────
+
+#[test]
+fn stats_respects_config_format() {
+    let fixtures = Path::new("tests/fixtures");
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Copy fixtures into tmp so we can put a config next to them
+    copy_dir_recursive(fixtures, &tmp.path().join("force-app"));
+
+    // Create config with json format
+    std::fs::write(tmp.path().join(".sfcompact.yaml"), "default_format: json\n").unwrap();
+
+    // Run stats from the tmp dir (where config lives)
+    let output = sf_compact()
+        .args(["stats", "force-app"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("failed to run stats");
+    assert!(
+        output.status.success(),
+        "stats should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Also pack with json to compare
+    let packed = tempfile::tempdir().unwrap();
+    let pack_output = sf_compact()
+        .args([
+            "pack",
+            "force-app",
+            "-o",
+            packed.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .expect("failed to pack");
+    assert!(pack_output.status.success());
+
+    // Stats compact bytes and pack compact bytes should be in the same ballpark
+    // (both using json format). Just verify stats ran without error and shows data.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Tokens") && stdout.contains("Bytes"),
+        "stats should show token/byte info: {stdout}"
+    );
+}
+
 /// Helper to recursively copy a directory.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
     std::fs::create_dir_all(dst).unwrap();

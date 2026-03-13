@@ -1,0 +1,19 @@
+#!/usr/bin/env node
+
+const { execFileSync } = require("child_process");
+const path = require("path");
+const fs = require("fs");
+
+const binDir = path.join(__dirname);
+const binary = path.join(binDir, process.platform === "win32" ? "sf-compact-bin.exe" : "sf-compact-bin");
+
+if (!fs.existsSync(binary)) {
+  console.error("sf-compact binary not found. Try reinstalling: npm install -g sf-compact");
+  process.exit(1);
+}
+
+try {
+  execFileSync(binary, process.argv.slice(2), { stdio: "inherit" });
+} catch (err) {
+  process.exit(err.status || 1);
+}
