@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::constants;
 use crate::convert;
+use crate::diff;
 use crate::manifest;
 
 /// Run the MCP server over stdio (JSON-RPC 2.0, line-delimited).
@@ -165,6 +166,27 @@ fn handle_tools_list() -> Result<Value> {
                         }
                     }
                 }
+            },
+            {
+                "name": "sf_compact_lint",
+                "description": "Check that compact files are up-to-date with XML sources. Returns stale/new/orphaned files. Use for CI validation.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "description": "Source directory containing Salesforce metadata XML files (default: force-app)"
+                        },
+                        "output": {
+                            "type": "string",
+                            "description": "Packed directory to compare against (default: .sf-compact)"
+                        },
+                        "include": {
+                            "type": "string",
+                            "description": "Glob pattern to filter files (e.g. '*.profile-meta.xml')"
+                        }
+                    }
+                }
             }
         ]
     }))
@@ -182,6 +204,7 @@ fn handle_tools_call(params: &Value) -> Result<Value> {
         "sf_compact_pack" => call_pack(&args),
         "sf_compact_unpack" => call_unpack(&args),
         "sf_compact_stats" => call_stats(&args),
+        "sf_compact_lint" => call_lint(&args),
         _ => Err(anyhow::anyhow!("Unknown tool: {name}")),
     }
 }
@@ -307,6 +330,50 @@ fn call_stats(args: &Value) -> Result<Value> {
     }))
 }
 
+fn call_lint(args: &Value) -> Result<Value> {
+    let source = args
+        .get("source")
+        .and_then(|s| s.as_str())
+        .unwrap_or("force-app");
+    let output = args
+        .get("output")
+        .and_then(|s| s.as_str())
+        .unwrap_or(".sf-compact");
+    let include = args.get("include").and_then(|s| s.as_str());
+
+    let sources = vec![Path::new(source).to_path_buf()];
+    let result = diff::diff(&sources, Path::new(output), include)?;
+
+    let total = result.new_files.len() + result.modified_files.len() + result.deleted_files.len();
+
+    let mut text = String::new();
+    if total == 0 {
+        text.push_str(&format!("OK: {} files up to date", result.unchanged_files));
+    } else {
+        for f in &result.new_files {
+            text.push_str(&format!("+ {f} (not packed)\n"));
+        }
+        for f in &result.modified_files {
+            text.push_str(&format!("~ {f} (stale)\n"));
+        }
+        for f in &result.deleted_files {
+            text.push_str(&format!("- {f} (orphaned)\n"));
+        }
+        text.push_str(&format!(
+            "\n{} stale ({} new, {} modified, {} orphaned)",
+            total,
+            result.new_files.len(),
+            result.modified_files.len(),
+            result.deleted_files.len(),
+        ));
+    }
+
+    Ok(json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": total > 0
+    }))
+}
+
 /// Generate the AI instructions markdown content.
 pub fn generate_instructions() -> String {
     let manifest = manifest::build_manifest();
@@ -385,6 +452,12 @@ Watches source directories and auto-repacks when XML files change.
 sf-compact diff [source...] [-o packed-dir] [--include pattern]
 ```
 Shows which XML files have changed since last pack (new, modified, deleted).
+
+### Lint (CI validation)
+```bash
+sf-compact lint [source...] [-o packed-dir] [--include pattern]
+```
+Checks that compact files are up-to-date. Exits with code 1 if any files are stale, new, or orphaned. Use in CI pipelines to enforce that compact files stay in sync.
 
 ### Other Commands
 - `sf-compact manifest` — output supported metadata types in JSON

@@ -1423,6 +1423,115 @@ fn invalid_format_rejected() {
     );
 }
 
+// ─── Lint tests ────────────────────────────────────────────────
+
+#[test]
+fn lint_passes_when_up_to_date() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack first
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to pack");
+    assert!(output.status.success());
+
+    // Lint should pass (exit 0)
+    let output = sf_compact()
+        .args([
+            "lint",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to lint");
+    assert!(
+        output.status.success(),
+        "lint should pass when up to date, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("OK"), "should say OK, got: {stdout}");
+}
+
+#[test]
+fn lint_fails_when_stale() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack first
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to pack");
+    assert!(output.status.success());
+
+    // Corrupt a packed file
+    let profile_yaml = packed
+        .path()
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
+    assert!(profile_yaml.exists());
+    std::fs::write(&profile_yaml, "# corrupted\n").unwrap();
+
+    // Lint should fail (exit 1)
+    let output = sf_compact()
+        .args([
+            "lint",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to lint");
+    assert!(
+        !output.status.success(),
+        "lint should fail when files are stale"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("stale"),
+        "should report stale files, got: {stderr}"
+    );
+}
+
+#[test]
+fn lint_fails_when_not_packed() {
+    let fixtures = Path::new("tests/fixtures");
+    let empty_packed = tempfile::tempdir().unwrap();
+
+    // Lint against empty packed dir — all files are "new"
+    let output = sf_compact()
+        .args([
+            "lint",
+            fixtures.to_str().unwrap(),
+            "-o",
+            empty_packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to lint");
+    assert!(
+        !output.status.success(),
+        "lint should fail when nothing is packed"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not packed"),
+        "should report unpacked files, got: {stderr}"
+    );
+}
+
 /// Helper to recursively copy a directory.
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
     std::fs::create_dir_all(dst).unwrap();
