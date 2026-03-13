@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
+use crate::constants;
 use crate::convert;
 use crate::manifest;
 
@@ -103,7 +104,7 @@ fn handle_tools_list() -> Result<Value> {
         "tools": [
             {
                 "name": "sf_compact_pack",
-                "description": "Convert Salesforce metadata XML files to compact YAML format, reducing token consumption for AI tools.",
+                "description": "Convert Salesforce metadata XML files to compact YAML or JSON format, reducing token consumption by 42-54% for AI tools.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -113,24 +114,37 @@ fn handle_tools_list() -> Result<Value> {
                         },
                         "output": {
                             "type": "string",
-                            "description": "Output directory for compact YAML files (default: .sf-compact)"
+                            "description": "Output directory for compact files (default: .sf-compact)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["yaml", "yaml-ordered", "json"],
+                            "description": "Output format: yaml (~49% savings), yaml-ordered (~42%, preserves element order), json (~54% savings). Default: yaml or per-type config."
+                        },
+                        "include": {
+                            "type": "string",
+                            "description": "Glob pattern to filter files (e.g. '*.profile-meta.xml')"
                         }
                     }
                 }
             },
             {
                 "name": "sf_compact_unpack",
-                "description": "Convert compact YAML files back to Salesforce metadata XML (lossless roundtrip).",
+                "description": "Convert compact YAML/JSON files back to Salesforce metadata XML (semantically lossless roundtrip).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "source": {
                             "type": "string",
-                            "description": "Source directory containing compact YAML files (default: .sf-compact)"
+                            "description": "Source directory containing compact YAML/JSON files (default: .sf-compact)"
                         },
                         "output": {
                             "type": "string",
                             "description": "Output directory for restored XML files (default: force-app)"
+                        },
+                        "include": {
+                            "type": "string",
+                            "description": "Glob pattern to filter files (e.g. '*.profile-meta.yaml')"
                         }
                     }
                 }
@@ -144,6 +158,10 @@ fn handle_tools_list() -> Result<Value> {
                         "source": {
                             "type": "string",
                             "description": "Source directory containing Salesforce metadata XML files (default: force-app)"
+                        },
+                        "include": {
+                            "type": "string",
+                            "description": "Glob pattern to filter files (e.g. '*.profile-meta.xml')"
                         }
                     }
                 }
@@ -177,8 +195,31 @@ fn call_pack(args: &Value) -> Result<Value> {
         .get("output")
         .and_then(|s| s.as_str())
         .unwrap_or(".sf-compact");
+    let format = args
+        .get("format")
+        .and_then(|s| s.as_str())
+        .map(String::from);
+    let include = args
+        .get("include")
+        .and_then(|s| s.as_str())
+        .map(String::from);
 
-    let stats = convert::pack_path(Path::new(source), Path::new(output))?;
+    if let Some(ref fmt) = format {
+        if !constants::VALID_FORMATS.contains(&fmt.as_str()) {
+            anyhow::bail!(
+                "Invalid format '{}'. Valid formats: {}",
+                fmt,
+                constants::VALID_FORMATS.join(", ")
+            );
+        }
+    }
+
+    let opts = convert::ConvertOpts {
+        paths: vec![Path::new(source).to_path_buf()],
+        include,
+        format_override: format,
+    };
+    let stats = convert::pack(&opts, Path::new(output))?;
 
     let text = format!(
         "Packed {} files: {} -> {} bytes ({:.1}% reduction)",
@@ -202,8 +243,17 @@ fn call_unpack(args: &Value) -> Result<Value> {
         .get("output")
         .and_then(|s| s.as_str())
         .unwrap_or("force-app");
+    let include = args
+        .get("include")
+        .and_then(|s| s.as_str())
+        .map(String::from);
 
-    let stats = convert::unpack_path(Path::new(source), Path::new(output))?;
+    let opts = convert::ConvertOpts {
+        paths: vec![Path::new(source).to_path_buf()],
+        include,
+        format_override: None,
+    };
+    let stats = convert::unpack(&opts, Path::new(output))?;
 
     let text = format!("Unpacked {} files", stats.files_processed);
 
@@ -217,8 +267,17 @@ fn call_stats(args: &Value) -> Result<Value> {
         .get("source")
         .and_then(|s| s.as_str())
         .unwrap_or("force-app");
+    let include = args
+        .get("include")
+        .and_then(|s| s.as_str())
+        .map(String::from);
 
-    let stats = convert::stats_path(Path::new(source))?;
+    let opts = convert::ConvertOpts {
+        paths: vec![Path::new(source).to_path_buf()],
+        include,
+        format_override: None,
+    };
+    let stats = convert::stats(&opts)?;
 
     let mut text = format!(
         "Files: {}\nXML bytes: {}\nYAML bytes: {}\nByte reduction: {:.1}%\nXML tokens: {}\nYAML tokens: {}\nToken reduction: {:.1}%\nTokens saved: {}",
@@ -269,6 +328,14 @@ sf-compact converts Salesforce metadata XML files into compact YAML or JSON form
 
 The conversion is **semantically lossless** — you can always convert back to XML. Element order within a parent may change unless you use `yaml-ordered` or `json` format.
 
+## Install
+
+```bash
+npm install -g sf-compact-cli   # npm (downloads pre-built binary)
+brew install vradko/tap/sf-compact  # Homebrew (macOS/Linux)
+cargo install sf-compact            # From source (Rust required)
+```
+
 ## Output Formats
 
 - **yaml** — grouped arrays, ~49% token savings, best for order-insensitive types
@@ -309,13 +376,13 @@ sf-compact config show                              # display config
 
 ### Watch (auto-pack on changes)
 ```bash
-sf-compact watch [source...] [-o output] [--format yaml|yaml-ordered|json]
+sf-compact watch [source...] [-o output] [--format yaml|yaml-ordered|json] [--include pattern]
 ```
 Watches source directories and auto-repacks when XML files change.
 
 ### Diff (detect unpacked changes)
 ```bash
-sf-compact diff [source...] [-o packed-dir]
+sf-compact diff [source...] [-o packed-dir] [--include pattern]
 ```
 Shows which XML files have changed since last pack (new, modified, deleted).
 

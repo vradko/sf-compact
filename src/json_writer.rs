@@ -1,3 +1,4 @@
+use crate::constants;
 use crate::xml_parser::{XmlNode, XmlValue};
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -25,10 +26,13 @@ pub fn json_to_xml_node(json: &str) -> Result<XmlNode> {
 fn node_to_json_value(node: &XmlNode) -> Value {
     let mut map = serde_json::Map::new();
 
-    map.insert("_tag".to_string(), Value::String(node.tag.clone()));
+    map.insert(
+        constants::KEY_TAG.to_string(),
+        Value::String(node.tag.clone()),
+    );
 
     if let Some(ns) = &node.namespace {
-        map.insert("_ns".to_string(), Value::String(ns.clone()));
+        map.insert(constants::KEY_NS.to_string(), Value::String(ns.clone()));
     }
 
     if !node.attrs.is_empty() {
@@ -36,7 +40,7 @@ fn node_to_json_value(node: &XmlNode) -> Value {
         for (k, v) in &node.attrs {
             attrs.insert(k.clone(), Value::String(v.clone()));
         }
-        map.insert("_attrs".to_string(), Value::Object(attrs));
+        map.insert(constants::KEY_ATTRS.to_string(), Value::Object(attrs));
     }
 
     if node.children.is_empty() {
@@ -46,7 +50,7 @@ fn node_to_json_value(node: &XmlNode) -> Value {
     // Single text child
     if node.children.len() == 1 {
         if let XmlValue::Text(t) = &node.children[0] {
-            map.insert("_text".to_string(), smart_json_value(t));
+            map.insert(constants::KEY_TEXT.to_string(), smart_json_value(t));
             return Value::Object(map);
         }
     }
@@ -64,12 +68,12 @@ fn node_to_json_value(node: &XmlNode) -> Value {
     if !text_parts.is_empty() {
         if text_parts.len() == 1 {
             map.insert(
-                "_text".to_string(),
+                constants::KEY_TEXT.to_string(),
                 Value::String(text_parts[0].to_string()),
             );
         } else {
             map.insert(
-                "_text".to_string(),
+                constants::KEY_TEXT.to_string(),
                 Value::Array(
                     text_parts
                         .iter()
@@ -91,7 +95,10 @@ fn node_to_json_value(node: &XmlNode) -> Value {
         .collect();
 
     if !child_nodes.is_empty() {
-        map.insert("_children".to_string(), Value::Array(child_nodes));
+        map.insert(
+            constants::KEY_CHILDREN.to_string(),
+            Value::Array(child_nodes),
+        );
     }
 
     Value::Object(map)
@@ -106,16 +113,22 @@ fn child_node_to_json(node: &XmlNode) -> Value {
     // Text leaf: <foo>bar</foo>
     if is_text_leaf(node) {
         let mut m = serde_json::Map::new();
-        m.insert("_tag".to_string(), Value::String(node.tag.clone()));
+        m.insert(
+            constants::KEY_TAG.to_string(),
+            Value::String(node.tag.clone()),
+        );
         let text = leaf_text(node);
-        m.insert("_text".to_string(), smart_json_value(text));
+        m.insert(constants::KEY_TEXT.to_string(), smart_json_value(text));
         return Value::Object(m);
     }
 
     // Simple kv container: all children are text-leaves with unique tags
     if is_simple_kv_node(node) {
         let mut m = serde_json::Map::new();
-        m.insert("_tag".to_string(), Value::String(node.tag.clone()));
+        m.insert(
+            constants::KEY_TAG.to_string(),
+            Value::String(node.tag.clone()),
+        );
         for child in &node.children {
             if let XmlValue::Node(n) = child {
                 m.insert(n.tag.clone(), smart_json_value(leaf_text(n)));
@@ -186,15 +199,18 @@ fn json_value_to_node(value: &Value) -> Result<XmlNode> {
         .ok_or_else(|| anyhow::anyhow!("Expected JSON object at root"))?;
 
     let tag = obj
-        .get("_tag")
+        .get(constants::KEY_TAG)
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing _tag in JSON node"))?
         .to_string();
 
-    let namespace = obj.get("_ns").and_then(|v| v.as_str()).map(String::from);
+    let namespace = obj
+        .get(constants::KEY_NS)
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let mut attrs = IndexMap::new();
-    if let Some(Value::Object(a)) = obj.get("_attrs") {
+    if let Some(Value::Object(a)) = obj.get(constants::KEY_ATTRS) {
         for (k, v) in a {
             if let Some(val) = v.as_str() {
                 attrs.insert(k.clone(), val.to_string());
@@ -205,7 +221,7 @@ fn json_value_to_node(value: &Value) -> Result<XmlNode> {
     let mut children = Vec::new();
 
     // Handle _text
-    if let Some(text_val) = obj.get("_text") {
+    if let Some(text_val) = obj.get(constants::KEY_TEXT) {
         match text_val {
             Value::String(s) => children.push(XmlValue::Text(s.clone())),
             Value::Bool(b) => children.push(XmlValue::Text(b.to_string())),
@@ -221,7 +237,7 @@ fn json_value_to_node(value: &Value) -> Result<XmlNode> {
     }
 
     // Handle _children array (order-preserving)
-    if let Some(Value::Array(arr)) = obj.get("_children") {
+    if let Some(Value::Array(arr)) = obj.get(constants::KEY_CHILDREN) {
         for item in arr {
             let child = reconstruct_child_from_json(item)?;
             children.push(XmlValue::Node(child));
@@ -229,7 +245,13 @@ fn json_value_to_node(value: &Value) -> Result<XmlNode> {
     }
 
     // Also handle non-reserved keys (for backward compat / alternative format)
-    let reserved = ["_tag", "_ns", "_attrs", "_text", "_children"];
+    let reserved = [
+        constants::KEY_TAG,
+        constants::KEY_NS,
+        constants::KEY_ATTRS,
+        constants::KEY_TEXT,
+        constants::KEY_CHILDREN,
+    ];
     for (key, val) in obj {
         if reserved.contains(&key.as_str()) {
             continue;
@@ -271,15 +293,15 @@ fn reconstruct_child_from_json(value: &Value) -> Result<XmlNode> {
         .ok_or_else(|| anyhow::anyhow!("Expected JSON object in _children array"))?;
 
     let tag = obj
-        .get("_tag")
+        .get(constants::KEY_TAG)
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing _tag in _children element"))?
         .to_string();
 
     // Check if this has _children or _text (recursive structure)
-    let has_children_arr = obj.contains_key("_children");
-    let has_ns = obj.contains_key("_ns");
-    let has_attrs = obj.contains_key("_attrs");
+    let has_children_arr = obj.contains_key(constants::KEY_CHILDREN);
+    let has_ns = obj.contains_key(constants::KEY_NS);
+    let has_attrs = obj.contains_key(constants::KEY_ATTRS);
 
     if has_children_arr || has_ns || has_attrs {
         // Full recursive node
@@ -287,7 +309,7 @@ fn reconstruct_child_from_json(value: &Value) -> Result<XmlNode> {
     }
 
     // Check for _text (text leaf)
-    if let Some(text_val) = obj.get("_text") {
+    if let Some(text_val) = obj.get(constants::KEY_TEXT) {
         let text = json_value_to_string(text_val);
         return Ok(XmlNode {
             tag,
@@ -304,7 +326,7 @@ fn reconstruct_child_from_json(value: &Value) -> Result<XmlNode> {
     // Otherwise it's a kv container: keys besides _tag are child elements
     let mut children = Vec::new();
     for (k, v) in obj {
-        if k == "_tag" {
+        if k == constants::KEY_TAG {
             continue;
         }
         let text = json_value_to_string(v);
@@ -331,7 +353,7 @@ fn reconstruct_child_from_json(value: &Value) -> Result<XmlNode> {
 fn reconstruct_named_child_from_json(tag: &str, value: &Value) -> Result<XmlNode> {
     match value {
         Value::Object(m) => {
-            if m.contains_key("_tag") {
+            if m.contains_key(constants::KEY_TAG) {
                 // Has its own tag — just parse as a full node
                 json_value_to_node(value)
             } else {
