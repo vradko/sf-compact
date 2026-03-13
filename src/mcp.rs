@@ -241,6 +241,7 @@ fn call_pack(args: &Value) -> Result<Value> {
         paths: vec![Path::new(source).to_path_buf()],
         include,
         format_override: format,
+        incremental: false,
     };
     let stats = convert::pack(&opts, Path::new(output))?;
 
@@ -275,6 +276,7 @@ fn call_unpack(args: &Value) -> Result<Value> {
         paths: vec![Path::new(source).to_path_buf()],
         include,
         format_override: None,
+        incremental: false,
     };
     let stats = convert::unpack(&opts, Path::new(output))?;
 
@@ -299,6 +301,7 @@ fn call_stats(args: &Value) -> Result<Value> {
         paths: vec![Path::new(source).to_path_buf()],
         include,
         format_override: None,
+        incremental: false,
     };
     let stats = convert::stats(&opts)?;
 
@@ -413,12 +416,13 @@ cargo install sf-compact            # From source (Rust required)
 
 ### Pack (XML to compact format)
 ```bash
-sf-compact pack [source...] [-o output] [--format yaml|yaml-ordered|json] [--include pattern]
+sf-compact pack [source...] [-o output] [--format yaml|yaml-ordered|json] [--include pattern] [--incremental]
 ```
 - `source` — one or more directories or files (default: `force-app`)
 - `-o output` — output directory (default: `.sf-compact`)
 - `--format` — output format override (default: from config or `yaml`)
 - `--include` — glob filter (e.g. `"*.profile-meta.xml"`)
+- `--incremental` — only repack files modified since last pack (by mtime)
 
 ### Unpack (compact format to XML)
 ```bash

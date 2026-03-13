@@ -97,7 +97,7 @@ cargo install --path .
 
 ### Pack (XML → compact format)
 ```bash
-sf-compact pack [source...] [-o output] [--format yaml|yaml-ordered|json] [--include pattern]
+sf-compact pack [source...] [-o output] [--format yaml|yaml-ordered|json] [--include pattern] [--incremental]
 ```
 
 ```bash
@@ -107,11 +107,17 @@ sf-compact pack force-app -o .sf-compact
 # Pack as JSON for maximum token savings
 sf-compact pack force-app --format json
 
+# Incremental: only repack files modified since last pack
+sf-compact pack --incremental
+
 # Pack specific directories
 sf-compact pack force-app/main/default/profiles force-app/main/default/classes
 
 # Pack only profiles
 sf-compact pack force-app --include "*.profile-meta.xml"
+
+# Limit parallel threads (default: all CPU cores)
+sf-compact -j 4 pack force-app
 ```
 
 ### Unpack (compact format → XML)
@@ -245,6 +251,16 @@ Generate a provider-agnostic markdown file with usage instructions for any AI to
 sf-compact init instructions
 sf-compact init instructions --name SALESFORCE.md
 ```
+
+### Cursor / Windsurf Rules
+
+Generate `.cursorrules` and `.windsurfrules` files that teach AI editors to prefer compact files:
+
+```bash
+sf-compact init cursorrules
+```
+
+This creates rules that instruct Cursor, Windsurf, and similar AI editors to read from `.sf-compact/` instead of raw XML, saving tokens on every interaction.
 
 ### Manifest
 
