@@ -195,8 +195,14 @@ fn call_pack(args: &Value) -> Result<Value> {
         .get("output")
         .and_then(|s| s.as_str())
         .unwrap_or(".sf-compact");
-    let format = args.get("format").and_then(|s| s.as_str()).map(String::from);
-    let include = args.get("include").and_then(|s| s.as_str()).map(String::from);
+    let format = args
+        .get("format")
+        .and_then(|s| s.as_str())
+        .map(String::from);
+    let include = args
+        .get("include")
+        .and_then(|s| s.as_str())
+        .map(String::from);
 
     if let Some(ref fmt) = format {
         if !constants::VALID_FORMATS.contains(&fmt.as_str()) {
@@ -237,7 +243,10 @@ fn call_unpack(args: &Value) -> Result<Value> {
         .get("output")
         .and_then(|s| s.as_str())
         .unwrap_or("force-app");
-    let include = args.get("include").and_then(|s| s.as_str()).map(String::from);
+    let include = args
+        .get("include")
+        .and_then(|s| s.as_str())
+        .map(String::from);
 
     let opts = convert::ConvertOpts {
         paths: vec![Path::new(source).to_path_buf()],
@@ -258,7 +267,10 @@ fn call_stats(args: &Value) -> Result<Value> {
         .get("source")
         .and_then(|s| s.as_str())
         .unwrap_or("force-app");
-    let include = args.get("include").and_then(|s| s.as_str()).map(String::from);
+    let include = args
+        .get("include")
+        .and_then(|s| s.as_str())
+        .map(String::from);
 
     let opts = convert::ConvertOpts {
         paths: vec![Path::new(source).to_path_buf()],

@@ -1415,10 +1415,7 @@ fn invalid_format_rejected() {
         .args(["pack", "tests/fixtures", "--format", "foobar"])
         .output()
         .expect("failed to run");
-    assert!(
-        !output.status.success(),
-        "should reject invalid format"
-    );
+    assert!(!output.status.success(), "should reject invalid format");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Invalid format") && stderr.contains("foobar"),

@@ -48,7 +48,10 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
 
     // Store namespace if present
     if let Some(ns) = &node.namespace {
-        map.insert(Value::String(constants::KEY_NS.to_string()), Value::String(ns.clone()));
+        map.insert(
+            Value::String(constants::KEY_NS.to_string()),
+            Value::String(ns.clone()),
+        );
     }
 
     // Store attributes if present
@@ -71,7 +74,10 @@ fn node_to_yaml_value(node: &XmlNode) -> Value {
     // Check if this is a simple text-only element
     if node.children.len() == 1 {
         if let XmlValue::Text(t) = &node.children[0] {
-            map.insert(Value::String(constants::KEY_TEXT.to_string()), Value::String(t.clone()));
+            map.insert(
+                Value::String(constants::KEY_TEXT.to_string()),
+                Value::String(t.clone()),
+            );
             return Value::Mapping(map);
         }
     }
@@ -290,7 +296,12 @@ fn yaml_value_to_node(value: &Value) -> Result<XmlNode> {
     }
 
     // Process all other keys as child elements
-    let reserved = [constants::KEY_TAG, constants::KEY_NS, constants::KEY_ATTRS, constants::KEY_TEXT];
+    let reserved = [
+        constants::KEY_TAG,
+        constants::KEY_NS,
+        constants::KEY_ATTRS,
+        constants::KEY_TEXT,
+    ];
     for (key, val) in map {
         let key_str = match key.as_str() {
             Some(s) => s,
@@ -421,7 +432,10 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
     );
 
     if let Some(ns) = &node.namespace {
-        map.insert(Value::String(constants::KEY_NS.to_string()), Value::String(ns.clone()));
+        map.insert(
+            Value::String(constants::KEY_NS.to_string()),
+            Value::String(ns.clone()),
+        );
     }
 
     if !node.attrs.is_empty() {
@@ -442,7 +456,10 @@ fn node_to_yaml_ordered_value(node: &XmlNode) -> Value {
     // Single text child
     if node.children.len() == 1 {
         if let XmlValue::Text(t) = &node.children[0] {
-            map.insert(Value::String(constants::KEY_TEXT.to_string()), Value::String(t.clone()));
+            map.insert(
+                Value::String(constants::KEY_TEXT.to_string()),
+                Value::String(t.clone()),
+            );
             return Value::Mapping(map);
         }
     }
@@ -567,7 +584,8 @@ fn yaml_ordered_value_to_node(value: &Value) -> Result<XmlNode> {
     }
 
     // Handle _children array (order-preserving)
-    if let Some(Value::Sequence(arr)) = map.get(Value::String(constants::KEY_CHILDREN.to_string())) {
+    if let Some(Value::Sequence(arr)) = map.get(Value::String(constants::KEY_CHILDREN.to_string()))
+    {
         for item in arr {
             let child = reconstruct_child_from_yaml_ordered(item)?;
             children.push(XmlValue::Node(child));
@@ -618,7 +636,8 @@ fn reconstruct_child_from_yaml_ordered(value: &Value) -> Result<XmlNode> {
         }),
         // Mapping → could be kv node or complex node with _children
         Value::Mapping(m) => {
-            let has_children_key = m.contains_key(Value::String(constants::KEY_CHILDREN.to_string()));
+            let has_children_key =
+                m.contains_key(Value::String(constants::KEY_CHILDREN.to_string()));
             let has_ns = m.contains_key(Value::String(constants::KEY_NS.to_string()));
             let has_attrs = m.contains_key(Value::String(constants::KEY_ATTRS.to_string()));
             let has_text = m.contains_key(Value::String(constants::KEY_TEXT.to_string()));

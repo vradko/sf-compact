@@ -41,7 +41,10 @@ impl SfCompactConfig {
         let mut formats = BTreeMap::new();
         for (type_name, order_sensitive, _supported) in entries {
             if *order_sensitive {
-                formats.insert(type_name.clone(), constants::FORMAT_YAML_ORDERED.to_string());
+                formats.insert(
+                    type_name.clone(),
+                    constants::FORMAT_YAML_ORDERED.to_string(),
+                );
             }
         }
         Self {

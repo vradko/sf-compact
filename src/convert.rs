@@ -510,7 +510,6 @@ pub fn stats(opts: &ConvertOpts) -> Result<ConvertStats> {
     Ok(stats)
 }
 
-
 // ─── Public accessors for diff module ────────────────────────────
 
 /// Find SF metadata XML files (public for diff).
