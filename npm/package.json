@@ -1,6 +1,6 @@
 {
   "name": "sf-compact-cli",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Convert Salesforce metadata XML to AI-friendly compact formats. Semantically lossless roundtrip.",
   "license": "MIT",
   "repository": {
