@@ -154,9 +154,7 @@ pub fn record_packed_files(compact_dir: &Path, files: &[convert::PackedFileInfo]
         state
             .global
             .insert(f.xml_relative_path.clone(), entry.clone());
-        state
-            .deployment
-            .insert(f.xml_relative_path.clone(), entry);
+        state.deployment.insert(f.xml_relative_path.clone(), entry);
     }
 
     save_tracking(&state, compact_dir)?;

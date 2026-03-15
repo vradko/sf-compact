@@ -24,11 +24,18 @@ fn pack_creates_tracking_file() {
         ])
         .output()
         .expect("failed to run pack");
-    assert!(output.status.success(), "pack failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "pack failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // .tracking directory should exist
     let tracking_dir = packed.path().join(".tracking");
-    assert!(tracking_dir.exists(), ".tracking directory not created after pack");
+    assert!(
+        tracking_dir.exists(),
+        ".tracking directory not created after pack"
+    );
 
     // Should have exactly one JSON file
     let entries: Vec<_> = fs::read_dir(&tracking_dir)
@@ -47,13 +54,19 @@ fn pack_creates_tracking_file() {
 
     // Should have entries for packed files
     let global = state["global"].as_object().unwrap();
-    assert!(!global.is_empty(), "global tracking should have entries after pack");
+    assert!(
+        !global.is_empty(),
+        "global tracking should have entries after pack"
+    );
 
     // Each entry should have required fields
     for (_key, entry) in global {
         assert!(entry["compact_path"].is_string(), "compact_path missing");
         assert!(entry["packed_at_epoch"].is_u64(), "packed_at_epoch missing");
-        assert!(entry["compact_mtime_epoch"].is_u64(), "compact_mtime_epoch missing");
+        assert!(
+            entry["compact_mtime_epoch"].is_u64(),
+            "compact_mtime_epoch missing"
+        );
     }
 }
 
@@ -66,7 +79,12 @@ fn changes_empty_after_fresh_pack() {
 
     // Pack first
     let output = sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -94,7 +112,12 @@ fn changes_detects_modified_file() {
 
     // Pack
     let output = sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -134,7 +157,12 @@ fn changes_json_output() {
 
     // Pack
     sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -154,11 +182,20 @@ fn changes_json_output() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout)
         .unwrap_or_else(|e| panic!("invalid JSON output: {e}\n{stdout}"));
-    assert!(parsed["global"].is_array(), "expected global array in JSON output");
+    assert!(
+        parsed["global"].is_array(),
+        "expected global array in JSON output"
+    );
     let arr = parsed["global"].as_array().unwrap();
     assert!(!arr.is_empty(), "expected at least one change in JSON");
-    assert!(arr[0]["xml_path"].is_string(), "xml_path missing from JSON entry");
-    assert!(arr[0]["compact_path"].is_string(), "compact_path missing from JSON entry");
+    assert!(
+        arr[0]["xml_path"].is_string(),
+        "xml_path missing from JSON entry"
+    );
+    assert!(
+        arr[0]["compact_path"].is_string(),
+        "compact_path missing from JSON entry"
+    );
 }
 
 // ── changes --since-deploy ─────────────────────────────────────────
@@ -170,7 +207,12 @@ fn changes_since_deploy_tracks_independently() {
 
     // Pack
     sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -182,7 +224,13 @@ fn changes_since_deploy_tracks_independently() {
 
     // Both global and since-deploy should show changes
     let output = sf_compact()
-        .args(["changes", "--since-deploy", "--json", "-o", packed.path().to_str().unwrap()])
+        .args([
+            "changes",
+            "--since-deploy",
+            "--json",
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -194,16 +242,30 @@ fn changes_since_deploy_tracks_independently() {
 
     // Reset deployment only
     let output = sf_compact()
-        .args(["changes", "-o", packed.path().to_str().unwrap(), "reset", "--since-deploy"])
+        .args([
+            "changes",
+            "-o",
+            packed.path().to_str().unwrap(),
+            "reset",
+            "--since-deploy",
+        ])
         .output()
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Reset deployment tracking"), "unexpected reset output: {stdout}");
+    assert!(
+        stdout.contains("Reset deployment tracking"),
+        "unexpected reset output: {stdout}"
+    );
 
     // since-deploy should now be empty
     let output = sf_compact()
-        .args(["changes", "--since-deploy", "-o", packed.path().to_str().unwrap()])
+        .args([
+            "changes",
+            "--since-deploy",
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -234,7 +296,12 @@ fn reset_global_clears_all() {
 
     // Pack and modify
     sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -245,12 +312,21 @@ fn reset_global_clears_all() {
 
     // Reset global
     let output = sf_compact()
-        .args(["changes", "-o", packed.path().to_str().unwrap(), "reset", "--global"])
+        .args([
+            "changes",
+            "-o",
+            packed.path().to_str().unwrap(),
+            "reset",
+            "--global",
+        ])
         .output()
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Reset global tracking"), "unexpected output: {stdout}");
+    assert!(
+        stdout.contains("Reset global tracking"),
+        "unexpected output: {stdout}"
+    );
 
     // Both should be empty
     let output = sf_compact()
@@ -258,14 +334,25 @@ fn reset_global_clears_all() {
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("No compact files modified"), "global should be empty: {stdout}");
+    assert!(
+        stdout.contains("No compact files modified"),
+        "global should be empty: {stdout}"
+    );
 
     let output = sf_compact()
-        .args(["changes", "--since-deploy", "-o", packed.path().to_str().unwrap()])
+        .args([
+            "changes",
+            "--since-deploy",
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("No compact files modified"), "deployment should be empty: {stdout}");
+    assert!(
+        stdout.contains("No compact files modified"),
+        "deployment should be empty: {stdout}"
+    );
 }
 
 // ── reset requires scope flag ──────────────────────────────────────
@@ -298,7 +385,10 @@ fn changes_nonexistent_dir_shows_empty() {
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("No compact files modified"), "should show empty: {stdout}");
+    assert!(
+        stdout.contains("No compact files modified"),
+        "should show empty: {stdout}"
+    );
 }
 
 // ── incremental pack only tracks actually packed files ─────────────
@@ -310,7 +400,12 @@ fn incremental_pack_only_tracks_new_files() {
 
     // Full pack
     sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -322,21 +417,32 @@ fn incremental_pack_only_tracks_new_files() {
 
     // Reset and do incremental pack (nothing changed → 0 files packed)
     sf_compact()
-        .args(["changes", "-o", packed.path().to_str().unwrap(), "reset", "--global"])
+        .args([
+            "changes",
+            "-o",
+            packed.path().to_str().unwrap(),
+            "reset",
+            "--global",
+        ])
         .output()
         .unwrap();
 
     let output = sf_compact()
         .args([
-            "pack", "--incremental",
+            "pack",
+            "--incremental",
             fixtures.to_str().unwrap(),
-            "-o", packed.path().to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
         ])
         .output()
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Packed 0 files"), "incremental should skip unchanged files: {stdout}");
+    assert!(
+        stdout.contains("Packed 0 files"),
+        "incremental should skip unchanged files: {stdout}"
+    );
 
     // Tracking should remain empty (no files were actually packed)
     let state = read_tracking_state(&tracking_dir);
@@ -354,7 +460,12 @@ fn changes_suggests_deploy_commands() {
     let packed = tempfile::tempdir().unwrap();
 
     sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -369,8 +480,14 @@ fn changes_suggests_deploy_commands() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(stdout.contains("sf project deploy start"), "should suggest deploy command: {stdout}");
-    assert!(stdout.contains("sf project retrieve start"), "should suggest retrieve command: {stdout}");
+    assert!(
+        stdout.contains("sf project deploy start"),
+        "should suggest deploy command: {stdout}"
+    );
+    assert!(
+        stdout.contains("sf project retrieve start"),
+        "should suggest retrieve command: {stdout}"
+    );
 }
 
 // ── deleted compact file doesn't crash ─────────────────────────────
@@ -382,7 +499,12 @@ fn changes_handles_deleted_compact_file() {
 
     // Pack
     sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -395,7 +517,10 @@ fn changes_handles_deleted_compact_file() {
         .args(["changes", "-o", packed.path().to_str().unwrap()])
         .output()
         .unwrap();
-    assert!(output.status.success(), "changes should handle deleted files gracefully");
+    assert!(
+        output.status.success(),
+        "changes should handle deleted files gracefully"
+    );
 }
 
 // ── tracking file structure ────────────────────────────────────────
@@ -406,7 +531,12 @@ fn tracking_file_has_correct_structure() {
     let packed = tempfile::tempdir().unwrap();
 
     sf_compact()
-        .args(["pack", fixtures.to_str().unwrap(), "-o", packed.path().to_str().unwrap()])
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -417,13 +547,29 @@ fn tracking_file_has_correct_structure() {
     assert!(!branch.is_empty(), "branch should not be empty");
 
     // Global and deployment should have the same entries after fresh pack
-    let global_keys: Vec<&str> = state["global"].as_object().unwrap().keys().map(|k| k.as_str()).collect();
-    let deploy_keys: Vec<&str> = state["deployment"].as_object().unwrap().keys().map(|k| k.as_str()).collect();
-    assert_eq!(global_keys, deploy_keys, "global and deployment should match after fresh pack");
+    let global_keys: Vec<&str> = state["global"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|k| k.as_str())
+        .collect();
+    let deploy_keys: Vec<&str> = state["deployment"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|k| k.as_str())
+        .collect();
+    assert_eq!(
+        global_keys, deploy_keys,
+        "global and deployment should match after fresh pack"
+    );
 
     // Keys should be XML relative paths
     for key in &global_keys {
-        assert!(key.ends_with("-meta.xml"), "tracking key should be XML path: {key}");
+        assert!(
+            key.ends_with("-meta.xml"),
+            "tracking key should be XML path: {key}"
+        );
     }
 }
 

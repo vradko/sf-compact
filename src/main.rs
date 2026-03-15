@@ -468,7 +468,11 @@ fn main() -> Result<()> {
             json,
             output,
         } => {
-            if let Some(ChangesAction::Reset { global, since_deploy }) = action {
+            if let Some(ChangesAction::Reset {
+                global,
+                since_deploy,
+            }) = action
+            {
                 if !global && !since_deploy {
                     anyhow::bail!("Specify --global or --since-deploy to reset");
                 }
@@ -479,7 +483,10 @@ fn main() -> Result<()> {
                 };
                 tracking::reset_tracking(&output, scope)?;
                 let label = if global { "global" } else { "deployment" };
-                println!("Reset {label} tracking for branch '{}'", tracking::get_current_branch());
+                println!(
+                    "Reset {label} tracking for branch '{}'",
+                    tracking::get_current_branch()
+                );
             } else {
                 let changes = tracking::detect_changes(&output, since_deploy)?;
 
@@ -501,17 +508,28 @@ fn main() -> Result<()> {
                     };
                     println!("{}", serde_json::to_string_pretty(&out)?);
                 } else if changes.is_empty() {
-                    let scope = if since_deploy { "since last deploy" } else { "globally" };
+                    let scope = if since_deploy {
+                        "since last deploy"
+                    } else {
+                        "globally"
+                    };
                     println!("No compact files modified {scope}.");
                 } else {
-                    let scope = if since_deploy { "since last deploy" } else { "globally" };
+                    let scope = if since_deploy {
+                        "since last deploy"
+                    } else {
+                        "globally"
+                    };
                     println!("{} file(s) modified {scope}:\n", changes.len());
                     for c in &changes {
                         println!("  M {}", c.xml_relative_path);
                     }
 
                     // Suggest deploy/retrieve commands
-                    let paths: Vec<&str> = changes.iter().map(|c| c.xml_relative_path.as_str()).collect();
+                    let paths: Vec<&str> = changes
+                        .iter()
+                        .map(|c| c.xml_relative_path.as_str())
+                        .collect();
                     println!("\nTo deploy changes:");
                     println!("  sf project deploy start -d {}", paths.join(" -d "));
                     println!("\nTo retrieve canonical XML before commit:");
