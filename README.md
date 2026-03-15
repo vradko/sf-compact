@@ -230,6 +230,42 @@ $ sf-compact diff
 Run `sf-compact pack` to update.
 ```
 
+### Lint (CI validation)
+```bash
+sf-compact lint [source...] [-o packed-dir] [--include pattern]
+```
+
+Check that compact files are up-to-date. Exits with code 1 if any files are stale, new, or orphaned. Use in CI pipelines.
+
+### Changes (track modified compact files)
+```bash
+sf-compact changes [-o compact-dir]                    # show all modified files (global)
+sf-compact changes --since-deploy                      # show changes since last deploy reset
+sf-compact changes --json                              # machine-readable JSON output
+sf-compact changes reset --global                      # clear all tracking
+sf-compact changes reset --since-deploy                # clear deployment tracking only
+```
+
+Tracks which compact files were modified (by AI or human) since last `pack`. Per-branch tracking with two scopes:
+- **Global** — all files changed since tracking started. For final retrieve before commit.
+- **Deployment** — delta since last deploy reset. For deploying only what changed.
+
+```bash
+$ sf-compact changes
+
+3 file(s) modified globally:
+
+  M main/default/objects/Account/Account.object-meta.xml
+  M main/default/profiles/Admin.profile-meta.xml
+  M main/default/flows/Case_Assignment.flow-meta.xml
+
+To deploy changes:
+  sf project deploy start -d main/default/objects/Account/Account.object-meta.xml -d ...
+
+To retrieve canonical XML before commit:
+  sf project retrieve start -d main/default/objects/Account/Account.object-meta.xml -d ...
+```
+
 ### MCP Server
 
 sf-compact includes a built-in [MCP](https://modelcontextprotocol.io/) server for direct AI tool integration.
@@ -242,7 +278,7 @@ sf-compact init mcp
 sf-compact mcp-serve
 ```
 
-This exposes `sf_compact_pack`, `sf_compact_unpack`, and `sf_compact_stats` as MCP tools that Claude Code, Cursor, and other MCP-compatible tools can discover and use automatically.
+This exposes `sf_compact_pack`, `sf_compact_unpack`, `sf_compact_stats`, `sf_compact_lint`, and `sf_compact_changes` as MCP tools that Claude Code, Cursor, and other MCP-compatible tools can discover and use automatically.
 
 ### AI Instructions
 

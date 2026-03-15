@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::constants;
+use crate::constants::{self, SUFFIX_META_JSON, SUFFIX_META_XML, SUFFIX_META_YAML};
 use crate::convert;
 use crate::json_writer;
 use crate::metadata_types;
@@ -123,8 +123,8 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
                 .unwrap_or(compact_path);
             let xml_name = relative
                 .to_string_lossy()
-                .replace("-meta.yaml", "-meta.xml")
-                .replace("-meta.json", "-meta.xml");
+                .replace(SUFFIX_META_YAML, SUFFIX_META_XML)
+                .replace(SUFFIX_META_JSON, SUFFIX_META_XML);
 
             let found = sources.iter().any(|src| src.join(&xml_name).exists());
             if !found {

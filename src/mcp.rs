@@ -7,6 +7,7 @@ use crate::constants;
 use crate::convert;
 use crate::diff;
 use crate::manifest;
+use crate::tracking;
 
 /// Run the MCP server over stdio (JSON-RPC 2.0, line-delimited).
 pub fn serve() -> Result<()> {
@@ -187,6 +188,28 @@ fn handle_tools_list() -> Result<Value> {
                         }
                     }
                 }
+            },
+            {
+                "name": "sf_compact_changes",
+                "description": "Show which compact files have been modified since last pack. Tracks changes per git branch with global and deployment scopes. Use to know what to deploy or retrieve before commit.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "output": {
+                            "type": "string",
+                            "description": "Compact directory to check (default: .sf-compact)"
+                        },
+                        "since_deploy": {
+                            "type": "boolean",
+                            "description": "If true, show only changes since last deployment reset (default: false, shows all global changes)"
+                        },
+                        "reset": {
+                            "type": "string",
+                            "enum": ["global", "since-deploy"],
+                            "description": "Reset tracking state: 'global' clears all tracking, 'since-deploy' clears only deployment tracking"
+                        }
+                    }
+                }
             }
         ]
     }))
@@ -205,6 +228,7 @@ fn handle_tools_call(params: &Value) -> Result<Value> {
         "sf_compact_unpack" => call_unpack(&args),
         "sf_compact_stats" => call_stats(&args),
         "sf_compact_lint" => call_lint(&args),
+        "sf_compact_changes" => call_changes(&args),
         _ => Err(anyhow::anyhow!("Unknown tool: {name}")),
     }
 }
@@ -213,11 +237,11 @@ fn call_pack(args: &Value) -> Result<Value> {
     let source = args
         .get("source")
         .and_then(|s| s.as_str())
-        .unwrap_or("force-app");
+        .unwrap_or(constants::DEFAULT_SOURCE);
     let output = args
         .get("output")
         .and_then(|s| s.as_str())
-        .unwrap_or(".sf-compact");
+        .unwrap_or(constants::DEFAULT_OUTPUT);
     let format = args
         .get("format")
         .and_then(|s| s.as_str())
@@ -237,6 +261,7 @@ fn call_pack(args: &Value) -> Result<Value> {
         }
     }
 
+    let output_path = Path::new(output);
     let opts = convert::ConvertOpts {
         paths: vec![Path::new(source).to_path_buf()],
         include,
@@ -245,7 +270,8 @@ fn call_pack(args: &Value) -> Result<Value> {
         preserve_comments: None,
         indent: None,
     };
-    let stats = convert::pack(&opts, Path::new(output))?;
+    let stats = convert::pack(&opts, output_path)?;
+    tracking::record_pack_result(output_path, &stats);
 
     let text = format!(
         "Packed {} files: {} -> {} bytes ({:.1}% reduction)",
@@ -264,11 +290,11 @@ fn call_unpack(args: &Value) -> Result<Value> {
     let source = args
         .get("source")
         .and_then(|s| s.as_str())
-        .unwrap_or(".sf-compact");
+        .unwrap_or(constants::DEFAULT_OUTPUT);
     let output = args
         .get("output")
         .and_then(|s| s.as_str())
-        .unwrap_or("force-app");
+        .unwrap_or(constants::DEFAULT_SOURCE);
     let include = args
         .get("include")
         .and_then(|s| s.as_str())
@@ -295,7 +321,7 @@ fn call_stats(args: &Value) -> Result<Value> {
     let source = args
         .get("source")
         .and_then(|s| s.as_str())
-        .unwrap_or("force-app");
+        .unwrap_or(constants::DEFAULT_SOURCE);
     let include = args
         .get("include")
         .and_then(|s| s.as_str())
@@ -343,11 +369,11 @@ fn call_lint(args: &Value) -> Result<Value> {
     let source = args
         .get("source")
         .and_then(|s| s.as_str())
-        .unwrap_or("force-app");
+        .unwrap_or(constants::DEFAULT_SOURCE);
     let output = args
         .get("output")
         .and_then(|s| s.as_str())
-        .unwrap_or(".sf-compact");
+        .unwrap_or(constants::DEFAULT_OUTPUT);
     let include = args.get("include").and_then(|s| s.as_str());
 
     let sources = vec![Path::new(source).to_path_buf()];
@@ -380,6 +406,83 @@ fn call_lint(args: &Value) -> Result<Value> {
     Ok(json!({
         "content": [{ "type": "text", "text": text }],
         "isError": total > 0
+    }))
+}
+
+fn call_changes(args: &Value) -> Result<Value> {
+    let output = args
+        .get("output")
+        .and_then(|s| s.as_str())
+        .unwrap_or(constants::DEFAULT_OUTPUT);
+    let output_path = Path::new(output);
+
+    // Handle reset
+    if let Some(reset) = args.get("reset").and_then(|s| s.as_str()) {
+        let scope = match reset {
+            "global" => tracking::ResetScope::Global,
+            "since-deploy" => tracking::ResetScope::SinceDeploy,
+            _ => anyhow::bail!("Invalid reset scope: {reset}. Use 'global' or 'since-deploy'"),
+        };
+        tracking::reset_tracking(output_path, scope)?;
+        let label = if reset == "global" {
+            "global"
+        } else {
+            "deployment"
+        };
+        let text = format!(
+            "Reset {label} tracking for branch '{}'",
+            tracking::get_current_branch()
+        );
+        return Ok(json!({
+            "content": [{ "type": "text", "text": text }]
+        }));
+    }
+
+    let since_deploy = args
+        .get("since_deploy")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let changes = tracking::detect_changes(output_path, since_deploy)?;
+
+    if changes.is_empty() {
+        let scope = if since_deploy {
+            "since last deploy"
+        } else {
+            "globally"
+        };
+        let text = format!("No compact files modified {scope}.");
+        return Ok(json!({
+            "content": [{ "type": "text", "text": text }]
+        }));
+    }
+
+    let scope_key = if since_deploy { "deployment" } else { "global" };
+    let items: Vec<Value> = changes
+        .iter()
+        .map(|c| {
+            json!({
+                "xml_path": c.xml_relative_path,
+                "compact_path": c.compact_path,
+            })
+        })
+        .collect();
+
+    let paths: Vec<&str> = changes
+        .iter()
+        .map(|c| c.xml_relative_path.as_str())
+        .collect();
+
+    let result = json!({
+        scope_key: items,
+        "deploy_command": format!("sf project deploy start -d {}", paths.join(" -d ")),
+        "retrieve_command": format!("sf project retrieve start -d {}", paths.join(" -d ")),
+    });
+
+    let text = serde_json::to_string_pretty(&result)?;
+
+    Ok(json!({
+        "content": [{ "type": "text", "text": text }]
     }))
 }
 
@@ -469,9 +572,19 @@ sf-compact lint [source...] [-o packed-dir] [--include pattern]
 ```
 Checks that compact files are up-to-date. Exits with code 1 if any files are stale, new, or orphaned. Use in CI pipelines to enforce that compact files stay in sync.
 
+### Changes (track modified compact files)
+```bash
+sf-compact changes [-o compact-dir]                    # show all modified files (global)
+sf-compact changes --since-deploy                      # show changes since last deploy reset
+sf-compact changes --json                              # machine-readable JSON output
+sf-compact changes reset --global                      # clear all tracking
+sf-compact changes reset --since-deploy                # clear deployment tracking only
+```
+Tracks which compact files were modified (by AI or human) since last `pack`. Per-branch tracking with two scopes: global (all changes) and deployment (delta since last deploy reset). Use to know what to deploy or retrieve before commit.
+
 ### Other Commands
 - `sf-compact manifest` — output supported metadata types in JSON
-- `sf-compact mcp-serve` — start MCP server over stdio
+- `sf-compact mcp-serve` — start MCP server over stdio (exposes pack, unpack, stats, lint, changes as MCP tools)
 - `sf-compact init mcp` — create/update .mcp.json
 - `sf-compact init instructions` — generate AI instructions markdown
 

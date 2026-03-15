@@ -1,5 +1,5 @@
 use crate::config;
-use crate::constants;
+use crate::constants::{self, SUFFIX_META_JSON, SUFFIX_META_XML, SUFFIX_META_YAML};
 use crate::json_writer;
 use crate::metadata_types;
 use crate::xml_parser;
@@ -33,6 +33,11 @@ pub struct FileStats {
     pub compact_tokens: usize,
 }
 
+pub struct PackedFileInfo {
+    pub xml_relative_path: String,
+    pub compact_absolute_path: PathBuf,
+}
+
 pub struct ConvertStats {
     pub files_processed: usize,
     pub original_bytes: u64,
@@ -41,6 +46,7 @@ pub struct ConvertStats {
     pub compact_tokens: usize,
     pub by_type: IndexMap<String, TypeStats>,
     pub per_file: Vec<FileStats>,
+    pub packed_files: Vec<PackedFileInfo>,
 }
 
 pub struct TypeStats {
@@ -78,6 +84,7 @@ impl ConvertStats {
             compact_tokens: 0,
             by_type: IndexMap::new(),
             per_file: Vec::new(),
+            packed_files: Vec::new(),
         }
     }
 
@@ -113,7 +120,7 @@ fn is_sf_metadata(path: &Path) -> bool {
 }
 
 fn metadata_type(path: &Path) -> String {
-    metadata_type_for_ext(path, "-meta.xml")
+    metadata_type_for_ext(path, SUFFIX_META_XML)
 }
 
 fn metadata_type_for_ext(path: &Path, suffix: &str) -> String {
@@ -162,7 +169,7 @@ fn find_sf_xml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
 
 fn is_sf_compact_file(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    name.ends_with("-meta.yaml") || name.ends_with("-meta.json")
+    name.ends_with(SUFFIX_META_YAML) || name.ends_with(SUFFIX_META_JSON)
 }
 
 fn find_compact_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
@@ -290,15 +297,15 @@ fn compact_path_for_xml(
     let relative = safe_relative(xml_path, source_root);
     let mut out = output_root.join(relative);
     let ext = if format == constants::FORMAT_JSON {
-        "-meta.json"
+        SUFFIX_META_JSON
     } else {
-        "-meta.yaml"
+        SUFFIX_META_YAML
     };
     let name = out
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
-        .replace("-meta.xml", ext);
+        .replace(SUFFIX_META_XML, ext);
     out.set_file_name(name);
     out
 }
@@ -311,8 +318,8 @@ fn xml_path_for_compact(compact_path: &Path, source_root: &Path, output_root: &P
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
-        .replace("-meta.yaml", "-meta.xml")
-        .replace("-meta.json", "-meta.xml");
+        .replace(SUFFIX_META_YAML, SUFFIX_META_XML)
+        .replace(SUFFIX_META_JSON, SUFFIX_META_XML);
     out.set_file_name(name);
     out
 }
@@ -499,6 +506,24 @@ pub fn pack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             let _ = fs::remove_file(&item.stale_path);
         }
 
+        let xml_relative = item
+            .xml_path
+            .strip_prefix(&root)
+            .unwrap_or(&item.xml_path)
+            .to_string_lossy()
+            .to_string();
+        let compact_absolute = if item.out_path.is_absolute() {
+            item.out_path.clone()
+        } else {
+            std::env::current_dir()
+                .unwrap_or_default()
+                .join(&item.out_path)
+        };
+        stats.packed_files.push(PackedFileInfo {
+            xml_relative_path: xml_relative,
+            compact_absolute_path: compact_absolute,
+        });
+
         accumulate_stats(
             &mut stats,
             &item.xml_path,
@@ -548,7 +573,7 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
             let is_json = compact_path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with("-meta.json"));
+                .is_some_and(|n| n.ends_with(SUFFIX_META_JSON));
 
             let node = if is_json {
                 match json_writer::json_to_xml_node(&content) {

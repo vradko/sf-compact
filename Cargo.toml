@@ -1,6 +1,6 @@
 [package]
 name = "sf-compact"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 description = "Convert Salesforce metadata XML to AI-friendly YAML and back. Semantically lossless roundtrip."
 license = "MIT"
