@@ -6,6 +6,7 @@ mod json_writer;
 mod manifest;
 mod mcp;
 mod metadata_types;
+mod tracking;
 mod watch;
 mod xml_parser;
 mod yaml_writer;
@@ -150,6 +151,23 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Show tracked file changes (compact files modified since last pack)
+    Changes {
+        #[command(subcommand)]
+        action: Option<ChangesAction>,
+
+        /// Show only changes since last deploy reset
+        #[arg(long)]
+        since_deploy: bool,
+
+        /// Output as JSON for machine consumption
+        #[arg(long)]
+        json: bool,
+
+        /// Compact directory to check
+        #[arg(short, long, default_value = ".sf-compact")]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -164,6 +182,20 @@ enum InitMode {
     },
     /// Generate .cursorrules / .windsurfrules for AI editors
     Cursorrules,
+}
+
+#[derive(Subcommand)]
+enum ChangesAction {
+    /// Reset tracking state
+    Reset {
+        /// Clear all global tracking
+        #[arg(long)]
+        global: bool,
+
+        /// Clear deployment tracking only
+        #[arg(long, alias = "since-deploy")]
+        since_deploy: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -231,6 +263,7 @@ fn main() -> Result<()> {
                 opts.preserve_comments = Some(true);
             }
             let stats = convert::pack(&opts, &output)?;
+            tracking::record_pack_result(&output, &stats);
             println!(
                 "Packed {} files: {} → {} bytes ({:.1}% reduction)",
                 stats.files_processed,
@@ -429,6 +462,81 @@ fn main() -> Result<()> {
                 init_cursorrules()?;
             }
         },
+        Commands::Changes {
+            action,
+            since_deploy,
+            json,
+            output,
+        } => {
+            if let Some(ChangesAction::Reset {
+                global,
+                since_deploy,
+            }) = action
+            {
+                if !global && !since_deploy {
+                    anyhow::bail!("Specify --global or --since-deploy to reset");
+                }
+                let scope = if global {
+                    tracking::ResetScope::Global
+                } else {
+                    tracking::ResetScope::SinceDeploy
+                };
+                tracking::reset_tracking(&output, scope)?;
+                let label = if global { "global" } else { "deployment" };
+                println!(
+                    "Reset {label} tracking for branch '{}'",
+                    tracking::get_current_branch()
+                );
+            } else {
+                let changes = tracking::detect_changes(&output, since_deploy)?;
+
+                if json {
+                    let items: Vec<serde_json::Value> = changes
+                        .iter()
+                        .map(|c| {
+                            serde_json::json!({
+                                "xml_path": c.xml_relative_path,
+                                "compact_path": c.compact_path,
+                            })
+                        })
+                        .collect();
+
+                    let out = if since_deploy {
+                        serde_json::json!({ "deployment": items })
+                    } else {
+                        serde_json::json!({ "global": items })
+                    };
+                    println!("{}", serde_json::to_string_pretty(&out)?);
+                } else if changes.is_empty() {
+                    let scope = if since_deploy {
+                        "since last deploy"
+                    } else {
+                        "globally"
+                    };
+                    println!("No compact files modified {scope}.");
+                } else {
+                    let scope = if since_deploy {
+                        "since last deploy"
+                    } else {
+                        "globally"
+                    };
+                    println!("{} file(s) modified {scope}:\n", changes.len());
+                    for c in &changes {
+                        println!("  M {}", c.xml_relative_path);
+                    }
+
+                    // Suggest deploy/retrieve commands
+                    let paths: Vec<&str> = changes
+                        .iter()
+                        .map(|c| c.xml_relative_path.as_str())
+                        .collect();
+                    println!("\nTo deploy changes:");
+                    println!("  sf project deploy start -d {}", paths.join(" -d "));
+                    println!("\nTo retrieve canonical XML before commit:");
+                    println!("  sf project retrieve start -d {}", paths.join(" -d "));
+                }
+            }
+        }
         Commands::Config { action } => match action {
             ConfigAction::Init => {
                 config_init()?;
@@ -633,6 +741,9 @@ sf-compact unpack [source] [-o output]
 sf-compact stats [source]    # preview token savings
 sf-compact diff              # check what changed since last pack
 sf-compact lint              # CI check — exits 1 if stale
+sf-compact changes           # show compact files modified since pack
+sf-compact changes --json    # machine-readable for AI
+sf-compact changes reset --since-deploy  # clear deploy tracking
 ```
 
 ## Important

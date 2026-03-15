@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use crate::constants::SUFFIX_META_XML;
 use crate::convert;
 
 /// Watch source directories for XML changes and auto-pack.
@@ -68,7 +69,7 @@ pub fn watch(
                         && e.path
                             .file_name()
                             .and_then(|n| n.to_str())
-                            .is_some_and(|n| n.ends_with("-meta.xml") || n.ends_with(".xml"))
+                            .is_some_and(|n| n.ends_with(SUFFIX_META_XML) || n.ends_with(".xml"))
                 });
 
                 if has_xml_change {

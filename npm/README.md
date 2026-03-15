@@ -203,6 +203,24 @@ $ sf-compact diff
 Run `sf-compact pack` to update.
 ```
 
+### Lint (CI validation)
+```bash
+sf-compact lint [source...] [-o packed-dir] [--include pattern]
+```
+
+Check that compact files are up-to-date. Exits with code 1 if any files are stale. Use in CI pipelines.
+
+### Changes (track modified compact files)
+```bash
+sf-compact changes [-o compact-dir]                    # show all modified files (global)
+sf-compact changes --since-deploy                      # show changes since last deploy reset
+sf-compact changes --json                              # machine-readable JSON output
+sf-compact changes reset --global                      # clear all tracking
+sf-compact changes reset --since-deploy                # clear deployment tracking only
+```
+
+Tracks which compact files were modified (by AI or human) since last `pack`. Per-branch tracking with two scopes: global (all changes) and deployment (delta since last deploy reset).
+
 ### MCP Server
 
 sf-compact includes a built-in [MCP](https://modelcontextprotocol.io/) server for direct AI tool integration.
@@ -215,7 +233,7 @@ sf-compact init mcp
 sf-compact mcp-serve
 ```
 
-This exposes `sf_compact_pack`, `sf_compact_unpack`, and `sf_compact_stats` as MCP tools that Claude Code, Cursor, and other MCP-compatible tools can discover and use automatically.
+This exposes `sf_compact_pack`, `sf_compact_unpack`, `sf_compact_stats`, `sf_compact_lint`, and `sf_compact_changes` as MCP tools that Claude Code, Cursor, and other MCP-compatible tools can discover and use automatically.
 
 ### AI Instructions
 
