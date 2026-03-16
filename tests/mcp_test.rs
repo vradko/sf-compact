@@ -189,6 +189,14 @@ fn mcp_stats_tool() {
         .unwrap();
     assert!(text.contains("Files: 5"), "stats output: {text}");
     assert!(
+        text.contains("Compact bytes"),
+        "should say 'Compact bytes' not 'YAML bytes': {text}"
+    );
+    assert!(
+        text.contains("Compact tokens"),
+        "should say 'Compact tokens' not 'YAML tokens': {text}"
+    );
+    assert!(
         text.contains("Token reduction"),
         "should have token stats: {text}"
     );

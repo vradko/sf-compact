@@ -1598,12 +1598,19 @@ fn stats_respects_config_format() {
         .expect("failed to pack");
     assert!(pack_output.status.success());
 
-    // Stats compact bytes and pack compact bytes should be in the same ballpark
-    // (both using json format). Just verify stats ran without error and shows data.
+    // Verify stats shows correct labels and data
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Tokens") && stdout.contains("Bytes"),
-        "stats should show token/byte info: {stdout}"
+        stdout.contains("compact (after)"),
+        "stats should show 'compact (after)' column header: {stdout}"
+    );
+    assert!(
+        stdout.contains("Bytes") && stdout.contains("Tokens"),
+        "stats should show Bytes and Tokens rows: {stdout}"
+    );
+    assert!(
+        !stdout.contains("YAML bytes"),
+        "stats should not say 'YAML bytes': {stdout}"
     );
 }
 

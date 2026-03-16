@@ -2,7 +2,7 @@
 name = "sf-compact"
 version = "0.2.0"
 edition = "2021"
-description = "Convert Salesforce metadata XML to AI-friendly YAML and back. Semantically lossless roundtrip."
+description = "Convert Salesforce metadata XML to compact AI-friendly formats (YAML/JSON). Semantically lossless roundtrip."
 license = "MIT"
 repository = "https://github.com/vradko/sf-compact"
 homepage = "https://github.com/vradko/sf-compact"

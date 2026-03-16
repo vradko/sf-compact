@@ -309,19 +309,20 @@ sf-compact manifest
 
 ## Supported Metadata Types
 
-76 file extensions mapping to Salesforce metadata types across 9 categories:
+76 file extensions mapping to Salesforce metadata types across 10 categories:
 
 | Category | Types |
 |----------|-------|
 | **Security** | Profile, PermissionSet, PermissionSetGroup, RemoteSiteSetting, CspTrustedSite, ConnectedApp, SharingRules, CustomPermission, Role, Group, AuthProvider, SamlSsoConfig, Certificate |
-| **Schema** | CustomObject, CustomField, ValidationRule, CustomMetadata, GlobalValueSet, StandardValueSet, RecordType, MatchingRule, DuplicateRule, CustomIndex, TopicsForObjects, CustomObjectTranslation, CustomFieldTranslation, FieldSet |
+| **Schema** | CustomObject, CustomField, ValidationRule, CustomMetadata, GlobalValueSet, StandardValueSet, RecordType, MatchingRule, DuplicateRule, CustomIndex, FieldSet |
 | **Code** | ApexClass, ApexTrigger, ApexComponent, ApexPage, LightningComponentBundle (js/css/html/xml), AuraDefinitionBundle (cmp/evt), StaticResource |
 | **Automation** | Flow*, Workflow, WorkflowRule, AssignmentRules, AutoResponseRules, EscalationRules |
 | **UI** | Layout*, CustomLabels, CustomApplication, CustomTab, FlexiPage*, CustomSite, QuickAction, PathAssistant, ListView, CompactLayout, WebLink, HomePageLayout, AppMenu, Community, Letterhead |
 | **Analytics** | ReportType, Report, Dashboard |
-| **Integration** | ExternalServiceRegistration, NamedCredential, ExternalCredential, InstalledPackage |
-| **Notifications** | CustomNotificationType, NotificationTypeConfig, LightningMessageChannel, PlatformEventChannelMember |
-| **Content** | EmailTemplate, ManagedContentType, CleanDataService, IframeWhiteListUrlSettings, Settings |
+| **Integration** | ExternalServiceRegistration, NamedCredential, ExternalCredential |
+| **Config** | Settings, InstalledPackage, TopicsForObjects, CustomNotificationType, CleanDataService, NotificationTypeConfig, PlatformEventChannelMember |
+| **Translation** | CustomObjectTranslation, CustomFieldTranslation |
+| **Content** | EmailTemplate, ManagedContentType, IframeWhiteListUrlSettings, LightningMessageChannel |
 
 \* Order-sensitive types — `config init` defaults these to `yaml-ordered` to preserve element order.
 

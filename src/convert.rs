@@ -370,11 +370,10 @@ fn effective_format(
 pub fn load_config_from_sources(opts: &ConvertOpts) -> Result<config::SfCompactConfig> {
     let root = common_root(opts);
     // Try loading from source directory first
-    if let Ok(cfg) = config::load_config(&root) {
-        if config::find_config_file(&root).is_some() {
-            cfg.validate()?;
-            return Ok(cfg);
-        }
+    if config::find_config_file(&root).is_some() {
+        let cfg = config::load_config(&root)?;
+        cfg.validate()?;
+        return Ok(cfg);
     }
     // Fallback to cwd
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -552,7 +551,7 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     let files = find_compact_files_from_opts(opts);
     let root = common_root(opts);
 
-    let cfg = load_config_from_sources(opts).unwrap_or_default();
+    let cfg = load_config_from_sources(opts)?;
     let indent_size = opts.indent.unwrap_or(cfg.indent) as usize;
 
     // Process files in parallel: parse compact → convert to XML
