@@ -19,7 +19,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "sf-compact")]
 #[command(
-    about = "Convert Salesforce metadata XML to AI-friendly YAML and back. Semantically lossless roundtrip."
+    about = "Convert Salesforce metadata XML to compact AI-friendly formats (YAML/JSON). Semantically lossless roundtrip."
 )]
 #[command(version)]
 struct Cli {

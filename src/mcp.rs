@@ -338,7 +338,7 @@ fn call_stats(args: &Value) -> Result<Value> {
     let stats = convert::stats(&opts)?;
 
     let mut text = format!(
-        "Files: {}\nXML bytes: {}\nYAML bytes: {}\nByte reduction: {:.1}%\nXML tokens: {}\nYAML tokens: {}\nToken reduction: {:.1}%\nTokens saved: {}",
+        "Files: {}\nXML bytes: {}\nCompact bytes: {}\nByte reduction: {:.1}%\nXML tokens: {}\nCompact tokens: {}\nToken reduction: {:.1}%\nTokens saved: {}",
         stats.files_processed,
         stats.original_bytes,
         stats.compact_bytes,
