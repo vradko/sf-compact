@@ -554,23 +554,31 @@ fn init_instructions_includes_changes_command() {
     );
 }
 
-// ── cursorrules includes changes ───────────────────────────────────
+// ── init instructions injects into cursor target ─────────────────
 
 #[test]
-fn init_cursorrules_includes_changes_command() {
+fn init_instructions_cursor_target() {
     let dir = tempfile::tempdir().unwrap();
 
     let output = sf_compact()
         .current_dir(dir.path())
-        .args(["init", "cursorrules"])
+        .args(["init", "instructions", "--target", "cursor"])
         .output()
         .unwrap();
     assert!(output.status.success());
 
     let content = std::fs::read_to_string(dir.path().join(".cursorrules")).unwrap();
     assert!(
-        content.contains("changes"),
-        "cursorrules should mention changes command"
+        content.contains("sf-compact"),
+        "cursorrules should mention sf-compact"
+    );
+    assert!(
+        content.contains("<!-- sf-compact:start -->"),
+        "cursorrules should have start marker"
+    );
+    assert!(
+        content.contains("<!-- sf-compact:end -->"),
+        "cursorrules should have end marker"
     );
 }
 

@@ -586,7 +586,8 @@ Tracks which compact files were modified (by AI or human) since last `pack`. Per
 - `sf-compact manifest` — output supported metadata types in JSON
 - `sf-compact mcp-serve` — start MCP server over stdio (exposes pack, unpack, stats, lint, changes as MCP tools)
 - `sf-compact init mcp` — create/update .mcp.json
-- `sf-compact init instructions` — generate AI instructions markdown
+- `sf-compact init instructions` — inject directive into AI tool files (auto-detects CLAUDE.md, .cursorrules, AGENTS.md, etc.)
+- `sf-compact init instructions --remove` — remove sf-compact blocks from all AI tool files
 
 ## Workflow
 
