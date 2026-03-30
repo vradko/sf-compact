@@ -358,7 +358,8 @@ mod tests {
 
     #[test]
     fn remove_block_from_content() {
-        let content = "# Header\n\n<!-- sf-compact:start -->\nstuff\n<!-- sf-compact:end -->\n\n# Footer\n";
+        let content =
+            "# Header\n\n<!-- sf-compact:start -->\nstuff\n<!-- sf-compact:end -->\n\n# Footer\n";
         let result = remove_block(content).unwrap();
         assert!(!result.contains("sf-compact"));
         assert!(result.contains("# Header"));
