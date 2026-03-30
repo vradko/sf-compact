@@ -282,22 +282,32 @@ This exposes `sf_compact_pack`, `sf_compact_unpack`, `sf_compact_stats`, `sf_com
 
 ### AI Instructions
 
-Generate a provider-agnostic markdown file with usage instructions for any AI tool:
+Inject a compact directive block into your AI tool's instruction file. Auto-detects which AI tools are configured in the project and writes to all of them.
 
 ```bash
+# Auto-detect AI tools and inject into all found instruction files
 sf-compact init instructions
-sf-compact init instructions --name SALESFORCE.md
+
+# Inject only into a specific tool's file
+sf-compact init instructions --target claude      # CLAUDE.md
+sf-compact init instructions --target cursor      # .cursorrules
+sf-compact init instructions --target copilot     # .github/copilot-instructions.md
+sf-compact init instructions --target codex       # AGENTS.md
+sf-compact init instructions --target windsurf    # .windsurfrules
+sf-compact init instructions --target cline       # .clinerules
+sf-compact init instructions --target aider       # .aiderules
+
+# Print directive to stdout
+sf-compact init instructions --target stdout
+
+# Remove sf-compact blocks from all AI instruction files
+sf-compact init instructions --remove
+
+# Legacy: create standalone reference file
+sf-compact init instructions --name SF_COMPACT.md
 ```
 
-### Cursor / Windsurf Rules
-
-Generate `.cursorrules` and `.windsurfrules` files that teach AI editors to prefer compact files:
-
-```bash
-sf-compact init cursorrules
-```
-
-This creates rules that instruct Cursor, Windsurf, and similar AI editors to read from `.sf-compact/` instead of raw XML, saving tokens on every interaction.
+The injected block uses `<!-- sf-compact:start -->` / `<!-- sf-compact:end -->` markers, so re-running the command updates the block in place (idempotent). If no AI instruction files exist, it creates `CLAUDE.md` by default.
 
 ### Manifest
 

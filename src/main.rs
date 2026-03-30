@@ -2,6 +2,7 @@ mod config;
 mod constants;
 mod convert;
 mod diff;
+mod instructions;
 mod json_writer;
 mod manifest;
 mod mcp;
@@ -174,14 +175,20 @@ enum Commands {
 enum InitMode {
     /// Create/update .mcp.json for MCP tool integration
     Mcp,
-    /// Create AI instructions markdown file
+    /// Inject sf-compact directive into AI tool instruction files
     Instructions {
-        /// Output filename for the instructions
-        #[arg(long, default_value = "SF_COMPACT.md")]
-        name: String,
+        /// Target AI tool: auto, claude, cursor, copilot, codex, windsurf, cline, aider, stdout
+        #[arg(long, default_value = "auto")]
+        target: String,
+
+        /// Create a standalone instructions file (legacy behavior). Mutually exclusive with --target.
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Remove sf-compact blocks from all AI tool instruction files
+        #[arg(long)]
+        remove: bool,
     },
-    /// Generate .cursorrules / .windsurfrules for AI editors
-    Cursorrules,
 }
 
 #[derive(Subcommand)]
@@ -455,11 +462,12 @@ fn main() -> Result<()> {
             InitMode::Mcp => {
                 init_mcp()?;
             }
-            InitMode::Instructions { name } => {
-                init_instructions(&name)?;
-            }
-            InitMode::Cursorrules => {
-                init_cursorrules()?;
+            InitMode::Instructions {
+                target,
+                name,
+                remove,
+            } => {
+                init_instructions(&target, name.as_deref(), remove)?;
             }
         },
         Commands::Changes {
@@ -687,80 +695,50 @@ fn init_mcp() -> Result<()> {
     Ok(())
 }
 
-fn init_cursorrules() -> Result<()> {
-    let content = generate_cursorrules();
-    let files = [".cursorrules", ".windsurfrules"];
-    for name in &files {
-        let path = PathBuf::from(name);
+fn init_instructions(target: &str, name: Option<&str>, remove: bool) -> Result<()> {
+    let project_root = std::env::current_dir()?;
+
+    // --name and --remove are mutually exclusive with --target (when not default)
+    if name.is_some() && remove {
+        anyhow::bail!("Cannot use --name and --remove together");
+    }
+    if name.is_some() && target != "auto" {
+        anyhow::bail!("Cannot use --name and --target together");
+    }
+    if remove && target != "auto" {
+        anyhow::bail!("Cannot use --remove and --target together");
+    }
+
+    // Legacy --name mode: generate standalone file
+    if let Some(filename) = name {
+        let content = instructions::generate_legacy_instructions();
+        let path = PathBuf::from(filename);
         fs::write(&path, &content)
             .with_context(|| format!("Failed to write {}", path.display()))?;
-        println!("Created {}", path.display());
+        println!("Created {} with AI instructions", path.display());
+        return Ok(());
     }
-    Ok(())
-}
 
-fn generate_cursorrules() -> String {
-    r#"# Salesforce Metadata — sf-compact rules
+    // --remove mode
+    if remove {
+        let results = instructions::remove(&project_root)?;
+        if results.is_empty() {
+            println!("No sf-compact instruction blocks found in any AI tool files.");
+        } else {
+            for r in &results {
+                println!("Removed sf-compact block from {r}");
+            }
+        }
+        return Ok(());
+    }
 
-## Compact files
+    // Default: inject directive
+    let results = instructions::inject(&project_root, target)?;
+    for r in &results {
+        if r != "stdout" {
+            println!("Injected sf-compact instructions into {r}");
+        }
+    }
 
-This project uses sf-compact to convert Salesforce metadata XML into compact YAML/JSON.
-The compact files live in `.sf-compact/` and are 42-54% smaller in tokens.
-
-**When reading Salesforce metadata, prefer `.sf-compact/` over `force-app/` XML files.**
-The compact format is semantically identical but uses far fewer tokens.
-
-## File mapping
-
-- `.sf-compact/**/*-meta.yaml` → compact YAML (grouped arrays)
-- `.sf-compact/**/*-meta.json` → compact JSON (preserves order)
-- `force-app/**/*-meta.xml` → original Salesforce XML
-
-## Editing workflow
-
-1. **Read** from `.sf-compact/` (saves tokens)
-2. **Edit** the compact YAML/JSON directly
-3. **Run `sf-compact unpack`** to restore XML before deployment
-4. Or: edit XML in `force-app/`, then run `sf-compact pack` to update compact files
-
-## Format reference
-
-Compact files use these conventions:
-- `_tag` — root element name (e.g., "Profile", "Flow")
-- `_ns` — XML namespace
-- `_attrs` — XML attributes (rare in SF metadata)
-- `_children` — ordered child elements (yaml-ordered/json format)
-- Repeated elements become arrays (yaml format)
-- Booleans: `true`/`false` (not strings)
-
-## Commands
-
-```bash
-sf-compact pack [source] [-o output] [--format yaml|yaml-ordered|json]
-sf-compact unpack [source] [-o output]
-sf-compact stats [source]    # preview token savings
-sf-compact diff              # check what changed since last pack
-sf-compact lint              # CI check — exits 1 if stale
-sf-compact changes           # show compact files modified since pack
-sf-compact changes --json    # machine-readable for AI
-sf-compact changes reset --since-deploy  # clear deploy tracking
-```
-
-## Important
-
-- Always run `sf-compact unpack` before `sf project deploy`
-- The conversion is semantically lossless for Salesforce metadata
-- When in doubt, check the XML in `force-app/` — it's the source of truth
-"#
-    .to_string()
-}
-
-fn init_instructions(name: &str) -> Result<()> {
-    let content = mcp::generate_instructions();
-    let path = PathBuf::from(name);
-
-    fs::write(&path, &content).with_context(|| format!("Failed to write {}", path.display()))?;
-
-    println!("Created {} with AI instructions", path.display());
     Ok(())
 }
