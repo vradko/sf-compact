@@ -209,7 +209,7 @@ Run `sf-compact pack` to update.
 sf-compact lint [source...] [-o packed-dir] [--include pattern]
 ```
 
-Check that compact files are up-to-date. Exits with code 1 if any files are stale. Use in CI pipelines.
+Check that compact files are up-to-date. Exits with code 1 if any files are stale, new, or orphaned. Use in CI pipelines.
 
 ### Changes (track modified compact files)
 ```bash

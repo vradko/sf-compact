@@ -148,6 +148,55 @@ fn changes_detects_modified_file() {
     assert!(stdout.contains("M "), "expected M prefix for modified file");
 }
 
+// ── changes detects new compact file added after pack ────────────
+
+#[test]
+fn changes_detects_new_compact_file() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack
+    let output = sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    // Add a new compact file that wasn't part of the pack
+    let new_file = packed
+        .path()
+        .join("main/default/classes/NewClass.cls-meta.json");
+    fs::create_dir_all(new_file.parent().unwrap()).unwrap();
+    fs::write(
+        &new_file,
+        r#"{"_tag":"ApexClass","_ns":"http://soap.sforce.com/2006/04/metadata","apiVersion":"59.0","status":"Active"}"#,
+    )
+    .unwrap();
+
+    // changes should detect the new file
+    let output = sf_compact()
+        .args(["changes", "--json", "-o", packed.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    let arr = parsed["global"].as_array().unwrap();
+    assert!(
+        arr.iter().any(|e| e["compact_path"]
+            .as_str()
+            .is_some_and(|p| p.contains("NewClass"))),
+        "expected new file in changes output, got: {stdout}"
+    );
+}
+
 // ── changes --json output ──────────────────────────────────────────
 
 #[test]

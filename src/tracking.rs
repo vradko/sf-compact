@@ -185,6 +185,8 @@ pub fn detect_changes(compact_dir: &Path, since_deploy: bool) -> Result<Vec<Chan
     };
 
     let mut changed = Vec::new();
+
+    // 1. Check tracked files for modifications
     for (xml_path, tracked) in map {
         let full_compact = compact_dir.join(&tracked.compact_path);
         if !full_compact.exists() {
@@ -197,6 +199,58 @@ pub fn detect_changes(compact_dir: &Path, since_deploy: bool) -> Result<Vec<Chan
                     compact_path: tracked.compact_path.clone(),
                 });
             }
+        }
+    }
+
+    // 2. Scan for new compact files not known to tracking.
+    // Only scan when tracking has entries (skip after reset to avoid false positives).
+    let all_known: std::collections::HashSet<&str> = state
+        .global
+        .values()
+        .chain(state.deployment.values())
+        .map(|t| t.compact_path.as_str())
+        .collect();
+
+    if all_known.is_empty() {
+        return Ok(changed);
+    }
+
+    for entry in walkdir::WalkDir::new(compact_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy();
+        if !name.ends_with(constants::SUFFIX_META_YAML)
+            && !name.ends_with(constants::SUFFIX_META_JSON)
+        {
+            continue;
+        }
+        // Skip tracking directory itself
+        if entry
+            .path()
+            .components()
+            .any(|c| c.as_os_str() == constants::TRACKING_DIR)
+        {
+            continue;
+        }
+        let relative = entry
+            .path()
+            .strip_prefix(compact_dir)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .to_string();
+        if !all_known.contains(relative.as_str()) {
+            // Derive XML relative path from compact relative path
+            let xml_rel = relative
+                .replace(constants::SUFFIX_META_YAML, constants::SUFFIX_META_XML)
+                .replace(constants::SUFFIX_META_JSON, constants::SUFFIX_META_XML);
+            changed.push(ChangedFile {
+                xml_relative_path: xml_rel,
+                compact_path: relative,
+            });
         }
     }
 

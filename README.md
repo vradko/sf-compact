@@ -168,7 +168,7 @@ Use `--files` for per-file breakdown, `--include` to filter by glob pattern.
 sf-compact uses a `.sfcompact.yaml` config file for per-type format control.
 
 ```bash
-# Create config with smart defaults (yaml-ordered for order-sensitive types)
+# Create config with smart defaults (json default, yaml for order-insensitive types)
 sf-compact config init
 
 # Set format for specific types (batch — multiple types in one call)
