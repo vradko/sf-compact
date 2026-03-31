@@ -114,6 +114,15 @@ fn count_tokens(text: &str) -> usize {
     bpe.encode_with_special_tokens(text).len()
 }
 
+/// Deduplicate paths by canonical (absolute) form while preserving original paths.
+fn deduplicate_paths(files: &mut Vec<PathBuf>) {
+    let mut seen = std::collections::HashSet::new();
+    files.retain(|f| {
+        let key = f.canonicalize().unwrap_or_else(|_| f.clone());
+        seen.insert(key)
+    });
+}
+
 fn is_sf_metadata(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     metadata_types::is_sf_metadata_filename(name)
@@ -164,6 +173,9 @@ fn find_sf_xml_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
         });
     }
 
+    // Deduplicate by canonical path (handles repeated/overlapping sources)
+    deduplicate_paths(&mut files);
+
     files
 }
 
@@ -195,6 +207,8 @@ fn find_compact_files_from_opts(opts: &ConvertOpts) -> Vec<PathBuf> {
             glob_match(pattern, &name)
         });
     }
+
+    deduplicate_paths(&mut files);
 
     files
 }

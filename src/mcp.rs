@@ -377,7 +377,7 @@ fn call_lint(args: &Value) -> Result<Value> {
     let include = args.get("include").and_then(|s| s.as_str());
 
     let sources = vec![Path::new(source).to_path_buf()];
-    let result = diff::diff(&sources, Path::new(output), include)?;
+    let result = diff::diff(&sources, Path::new(output), include, None)?;
 
     let total = result.new_files.len() + result.modified_files.len() + result.deleted_files.len();
 
