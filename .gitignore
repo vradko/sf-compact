@@ -4,3 +4,4 @@ tests/output-xml/
 .sf-compact/
 SF_COMPACT.md
 .mcp.json
+.env
