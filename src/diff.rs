@@ -18,7 +18,12 @@ pub struct DiffResult {
 
 /// Compare current XML metadata against packed compact files.
 /// Shows which files are new, modified, or deleted since last pack.
-pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Result<DiffResult> {
+pub fn diff(
+    sources: &[PathBuf],
+    packed_dir: &Path,
+    include: Option<&str>,
+    preserve_comments_override: Option<bool>,
+) -> Result<DiffResult> {
     // Validate
     for p in sources {
         if !p.exists() {
@@ -77,9 +82,8 @@ pub fn diff(sources: &[PathBuf], packed_dir: &Path, include: Option<&str>) -> Re
         // Generate fresh compact content and compare
         let xml_content = fs::read_to_string(xml_path)
             .with_context(|| format!("Reading {}", xml_path.display()))?;
-        let parse_opts = xml_parser::ParseOptions {
-            preserve_comments: cfg.preserve_comments,
-        };
+        let preserve_comments = preserve_comments_override.unwrap_or(cfg.preserve_comments);
+        let parse_opts = xml_parser::ParseOptions { preserve_comments };
         let node = xml_parser::parse_xml_with_options(&xml_content, &parse_opts)
             .with_context(|| format!("Parsing {}", xml_path.display()))?;
 

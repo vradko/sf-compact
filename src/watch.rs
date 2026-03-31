@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::constants::SUFFIX_META_XML;
 use crate::convert;
+use crate::tracking;
 
 /// Watch source directories for XML changes and auto-pack.
 pub fn watch(
@@ -31,6 +32,7 @@ pub fn watch(
         indent: None,
     };
     let stats = convert::pack(&opts, output)?;
+    tracking::record_pack_result(output, &stats);
     eprintln!(
         "Initial pack: {} files, {} → {} bytes ({:.1}% reduction)",
         stats.files_processed,
@@ -83,6 +85,7 @@ pub fn watch(
                     };
                     match convert::pack(&opts, output) {
                         Ok(stats) => {
+                            tracking::record_pack_result(output, &stats);
                             eprintln!(
                                 "Repacked {} files ({:.1}% reduction)",
                                 stats.files_processed,

@@ -132,6 +132,10 @@ enum Commands {
         /// Only include files matching this glob pattern
         #[arg(long)]
         include: Option<String>,
+
+        /// Preserve XML comments (overrides config)
+        #[arg(long)]
+        preserve_comments: bool,
     },
     /// Check that compact files are up-to-date (exit 1 if stale). Use in CI pipelines.
     Lint {
@@ -146,6 +150,10 @@ enum Commands {
         /// Only include files matching this glob pattern
         #[arg(long)]
         include: Option<String>,
+
+        /// Preserve XML comments (overrides config)
+        #[arg(long)]
+        preserve_comments: bool,
     },
     /// Manage .sfcompact.yaml configuration
     Config {
@@ -387,8 +395,10 @@ fn main() -> Result<()> {
             source,
             output,
             include,
+            preserve_comments,
         } => {
-            let result = diff::diff(&source, &output, include.as_deref())?;
+            let pc = if preserve_comments { Some(true) } else { None };
+            let result = diff::diff(&source, &output, include.as_deref(), pc)?;
 
             let total_changes =
                 result.new_files.len() + result.modified_files.len() + result.deleted_files.len();
@@ -423,8 +433,10 @@ fn main() -> Result<()> {
             source,
             output,
             include,
+            preserve_comments,
         } => {
-            let result = diff::diff(&source, &output, include.as_deref())?;
+            let pc = if preserve_comments { Some(true) } else { None };
+            let result = diff::diff(&source, &output, include.as_deref(), pc)?;
             let total_changes =
                 result.new_files.len() + result.modified_files.len() + result.deleted_files.len();
 

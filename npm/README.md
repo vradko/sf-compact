@@ -161,11 +161,12 @@ sf-compact config show
 Default config after `config init`:
 
 ```yaml
-default_format: yaml
+default_format: json
 formats:
-  Flow: yaml-ordered
-  FlexiPage: yaml-ordered
-  Layout: yaml-ordered
+  Profile: yaml
+  PermissionSet: yaml
+  PermissionSetGroup: yaml
+  # ... other order-insensitive types get yaml for readability
 skip: []
 ```
 
@@ -237,11 +238,23 @@ This exposes `sf_compact_pack`, `sf_compact_unpack`, `sf_compact_stats`, `sf_com
 
 ### AI Instructions
 
-Generate a provider-agnostic markdown file with usage instructions for any AI tool:
+Inject a compact directive block into your AI tool's instruction file. Auto-detects which AI tools are configured in the project and writes to all of them.
 
 ```bash
+# Auto-detect AI tools and inject into all found instruction files
 sf-compact init instructions
-sf-compact init instructions --name SALESFORCE.md
+
+# Inject only into a specific tool's file
+sf-compact init instructions --target claude      # CLAUDE.md
+sf-compact init instructions --target cursor      # .cursorrules
+sf-compact init instructions --target copilot     # .github/copilot-instructions.md
+sf-compact init instructions --target codex       # AGENTS.md
+
+# Remove sf-compact blocks from all AI instruction files
+sf-compact init instructions --remove
+
+# Legacy: create standalone reference file
+sf-compact init instructions --name SF_COMPACT.md
 ```
 
 ### Manifest
@@ -254,19 +267,20 @@ sf-compact manifest
 
 ## Supported Metadata Types
 
-76 file extensions mapping to Salesforce metadata types across 9 categories:
+76 file extensions mapping to Salesforce metadata types across 10 categories:
 
 | Category | Types |
 |----------|-------|
 | **Security** | Profile, PermissionSet, PermissionSetGroup, RemoteSiteSetting, CspTrustedSite, ConnectedApp, SharingRules, CustomPermission, Role, Group, AuthProvider, SamlSsoConfig, Certificate |
-| **Schema** | CustomObject, CustomField, ValidationRule, CustomMetadata, GlobalValueSet, StandardValueSet, RecordType, MatchingRule, DuplicateRule, CustomIndex, TopicsForObjects, CustomObjectTranslation, CustomFieldTranslation, FieldSet |
+| **Schema** | CustomObject, CustomField, ValidationRule, CustomMetadata, GlobalValueSet, StandardValueSet, RecordType, MatchingRule, DuplicateRule, CustomIndex, FieldSet |
 | **Code** | ApexClass, ApexTrigger, ApexComponent, ApexPage, LightningComponentBundle (js/css/html/xml), AuraDefinitionBundle (cmp/evt), StaticResource |
 | **Automation** | Flow*, Workflow, WorkflowRule, AssignmentRules, AutoResponseRules, EscalationRules |
 | **UI** | Layout*, CustomLabels, CustomApplication, CustomTab, FlexiPage*, CustomSite, QuickAction, PathAssistant, ListView, CompactLayout, WebLink, HomePageLayout, AppMenu, Community, Letterhead |
 | **Analytics** | ReportType, Report, Dashboard |
-| **Integration** | ExternalServiceRegistration, NamedCredential, ExternalCredential, InstalledPackage |
-| **Notifications** | CustomNotificationType, NotificationTypeConfig, LightningMessageChannel, PlatformEventChannelMember |
-| **Content** | EmailTemplate, ManagedContentType, CleanDataService, IframeWhiteListUrlSettings, Settings |
+| **Integration** | ExternalServiceRegistration, NamedCredential, ExternalCredential |
+| **Config** | Settings, InstalledPackage, TopicsForObjects, CustomNotificationType, CleanDataService, NotificationTypeConfig, PlatformEventChannelMember |
+| **Translation** | CustomObjectTranslation, CustomFieldTranslation |
+| **Content** | EmailTemplate, ManagedContentType, IframeWhiteListUrlSettings, LightningMessageChannel |
 
 \* Order-sensitive types — `config init` defaults these to `yaml-ordered` to preserve element order.
 
