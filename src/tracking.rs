@@ -266,7 +266,25 @@ pub fn reset_tracking(compact_dir: &Path, scope: ResetScope) -> Result<()> {
             state.deployment.clear();
         }
         ResetScope::SinceDeploy => {
-            state.deployment.clear();
+            // Snapshot current file mtimes as the new baseline so future
+            // modifications are detected relative to "now", not lost entirely.
+            let now = now_epoch();
+            state.deployment = state
+                .global
+                .iter()
+                .map(|(key, tracked)| {
+                    let current_mtime =
+                        file_mtime_epoch(&compact_dir.join(&tracked.compact_path)).unwrap_or(now);
+                    (
+                        key.clone(),
+                        TrackedFile {
+                            compact_path: tracked.compact_path.clone(),
+                            packed_at_epoch: now,
+                            compact_mtime_epoch: current_mtime,
+                        },
+                    )
+                })
+                .collect();
         }
     }
 

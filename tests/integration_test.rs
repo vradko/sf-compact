@@ -1787,3 +1787,256 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
         }
     }
 }
+
+// ─── Hook tests ───
+
+#[test]
+fn init_hook_creates_script_and_settings() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = sf_compact()
+        .args(["init", "hook"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run init hook");
+
+    assert!(
+        output.status.success(),
+        "init hook failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Created .claude/hooks/sf-compact-read.sh"));
+    assert!(stdout.contains("Updated .claude/settings.json"));
+
+    // Verify script exists and is executable
+    let script = dir.path().join(".claude/hooks/sf-compact-read.sh");
+    assert!(script.exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&script).unwrap().permissions().mode();
+        assert!(mode & 0o111 != 0, "script should be executable");
+    }
+
+    // Verify settings.json
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        settings.pointer("/hooks/PreToolUse/0/matcher").unwrap(),
+        "Read"
+    );
+    assert!(settings
+        .pointer("/hooks/PreToolUse/0/hooks/0/command")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .contains("sf-compact-read"));
+}
+
+#[test]
+fn init_hook_remove_cleans_up() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Install first
+    sf_compact()
+        .args(["init", "hook"])
+        .current_dir(dir.path())
+        .output()
+        .expect("install failed");
+
+    // Remove
+    let output = sf_compact()
+        .args(["init", "hook", "--remove"])
+        .current_dir(dir.path())
+        .output()
+        .expect("remove failed");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Removed"));
+
+    // Script should be gone
+    assert!(!dir.path().join(".claude/hooks/sf-compact-read.sh").exists());
+
+    // Settings should have empty PreToolUse array
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(settings
+        .pointer("/hooks/PreToolUse")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn init_hook_idempotent() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Install twice
+    sf_compact()
+        .args(["init", "hook"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    sf_compact()
+        .args(["init", "hook"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Should have exactly one hook entry
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        settings
+            .pointer("/hooks/PreToolUse")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn init_hook_preserves_existing_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let claude_dir = dir.path().join(".claude");
+    std::fs::create_dir_all(&claude_dir).unwrap();
+
+    // Create settings with existing content
+    std::fs::write(
+        claude_dir.join("settings.json"),
+        r#"{"permissions":{"allow":["Bash"]}}"#,
+    )
+    .unwrap();
+
+    sf_compact()
+        .args(["init", "hook"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(claude_dir.join("settings.json")).unwrap())
+            .unwrap();
+
+    // Existing settings preserved
+    assert_eq!(settings.pointer("/permissions/allow/0").unwrap(), "Bash");
+    // Hook added
+    assert!(settings.pointer("/hooks/PreToolUse/0").is_some());
+}
+
+#[test]
+fn hook_script_redirects_xml_to_compact() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Create source XML and compact JSON
+    let xml_dir = dir.path().join("force-app/main/default/objects");
+    let compact_dir = dir.path().join(".sf-compact/main/default/objects");
+    std::fs::create_dir_all(&xml_dir).unwrap();
+    std::fs::create_dir_all(&compact_dir).unwrap();
+
+    std::fs::write(
+        xml_dir.join("Account.object-meta.xml"),
+        "<CustomObject><label>Test</label></CustomObject>",
+    )
+    .unwrap();
+    std::fs::write(
+        compact_dir.join("Account.object-meta.json"),
+        r#"{"_tag":"CustomObject","label":"Test"}"#,
+    )
+    .unwrap();
+
+    // Install hook
+    sf_compact()
+        .args(["init", "hook"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Test the hook script
+    let input =
+        r#"{"tool_input":{"file_path":"force-app/main/default/objects/Account.object-meta.xml"}}"#;
+    let output = std::process::Command::new("bash")
+        .arg(dir.path().join(".claude/hooks/sf-compact-read.sh"))
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+            child.wait_with_output()
+        })
+        .expect("failed to run hook script");
+
+    assert!(output.status.success());
+
+    let result: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("hook should output valid JSON");
+
+    assert_eq!(
+        result
+            .pointer("/hookSpecificOutput/updatedInput/file_path")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        ".sf-compact/main/default/objects/Account.object-meta.json"
+    );
+}
+
+#[test]
+fn hook_script_passes_through_non_xml() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Install hook
+    sf_compact()
+        .args(["init", "hook"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let input = r#"{"tool_input":{"file_path":"src/main.rs"}}"#;
+    let output = std::process::Command::new("bash")
+        .arg(dir.path().join(".claude/hooks/sf-compact-read.sh"))
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+            child.wait_with_output()
+        })
+        .expect("failed to run hook script");
+
+    assert!(output.status.success());
+    // No JSON output for non-matching files
+    assert!(
+        output.stdout.is_empty() || output.stdout == b"\n",
+        "non-XML file should produce no output"
+    );
+}

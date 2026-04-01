@@ -1,7 +1,7 @@
 {
   "name": "sf-compact-cli",
-  "version": "0.3.3",
-  "description": "Convert Salesforce metadata XML to compact AI-friendly formats (YAML/JSON). Semantically lossless roundtrip.",
+  "version": "0.4.0",
+  "description": "Cut Salesforce metadata tokens in half for AI coding agents. Converts XML to compact YAML/JSON with transparent Claude Code hook integration.",
   "license": "MIT",
   "repository": {
     "type": "git",

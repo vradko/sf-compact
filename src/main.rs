@@ -2,6 +2,7 @@ mod config;
 mod constants;
 mod convert;
 mod diff;
+mod hook;
 mod instructions;
 mod json_writer;
 mod manifest;
@@ -20,7 +21,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "sf-compact")]
 #[command(
-    about = "Convert Salesforce metadata XML to compact AI-friendly formats (YAML/JSON). Semantically lossless roundtrip."
+    about = "Cut Salesforce metadata tokens in half for AI coding agents. Converts XML to compact YAML/JSON with transparent hook integration."
 )]
 #[command(version)]
 struct Cli {
@@ -194,6 +195,20 @@ enum InitMode {
         name: Option<String>,
 
         /// Remove sf-compact blocks from all AI tool instruction files
+        #[arg(long)]
+        remove: bool,
+    },
+    /// Install Claude Code hook that redirects XML reads to compact files
+    Hook {
+        /// Source directory containing Salesforce XML metadata
+        #[arg(long, default_value = "force-app")]
+        source: String,
+
+        /// Directory containing compact files
+        #[arg(long, default_value = ".sf-compact")]
+        output: String,
+
+        /// Remove the hook
         #[arg(long)]
         remove: bool,
     },
@@ -480,6 +495,17 @@ fn main() -> Result<()> {
                 remove,
             } => {
                 init_instructions(&target, name.as_deref(), remove)?;
+            }
+            InitMode::Hook {
+                source,
+                output,
+                remove,
+            } => {
+                if remove {
+                    hook::remove()?;
+                } else {
+                    hook::install(&source, &output)?;
+                }
             }
         },
         Commands::Changes {

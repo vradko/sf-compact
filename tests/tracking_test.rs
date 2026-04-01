@@ -622,6 +622,67 @@ fn tracking_file_has_correct_structure() {
     }
 }
 
+// ── regression: modify existing file after reset --since-deploy ───
+
+#[test]
+fn changes_since_deploy_detects_modifications_after_reset() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    // Pack
+    sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    // Reset deployment tracking
+    sf_compact()
+        .args([
+            "changes",
+            "-o",
+            packed.path().to_str().unwrap(),
+            "reset",
+            "--since-deploy",
+        ])
+        .output()
+        .unwrap();
+
+    // Wait so mtime differs
+    thread::sleep(Duration::from_millis(1100));
+
+    // Modify an existing compact file
+    let compact_file = find_first_compact_file(packed.path()).unwrap();
+    let content = fs::read_to_string(&compact_file).unwrap();
+    fs::write(&compact_file, format!("{content}\n# modified")).unwrap();
+
+    // changes --since-deploy should detect the modification
+    let output = sf_compact()
+        .args([
+            "changes",
+            "--since-deploy",
+            "--json",
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    let arr = parsed["deployment"].as_array().unwrap();
+    assert!(
+        !arr.is_empty(),
+        "since-deploy should detect modifications after reset, got: {stdout}"
+    );
+}
+
 // ── helpers ────────────────────────────────────────────────────────
 
 fn find_first_compact_file(dir: &Path) -> Option<std::path::PathBuf> {
