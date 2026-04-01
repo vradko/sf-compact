@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -126,7 +126,7 @@ exit 0
 // Settings.json manipulation
 // ---------------------------------------------------------------------------
 
-fn update_settings_add(script_path: &PathBuf) -> Result<()> {
+fn update_settings_add(script_path: &Path) -> Result<()> {
     let settings_path = PathBuf::from(SETTINGS_PATH);
     let mut settings = load_settings(&settings_path)?;
 
@@ -155,7 +155,7 @@ fn update_settings_add(script_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn remove_hook_from_settings(settings_path: &PathBuf) -> Result<()> {
+fn remove_hook_from_settings(settings_path: &Path) -> Result<()> {
     let content = fs::read_to_string(settings_path)?;
     let mut settings: serde_json::Value = serde_json::from_str(&content)?;
 
@@ -170,7 +170,7 @@ fn remove_hook_from_settings(settings_path: &PathBuf) -> Result<()> {
     save_settings(settings_path, &settings)
 }
 
-fn load_settings(path: &PathBuf) -> Result<serde_json::Value> {
+fn load_settings(path: &Path) -> Result<serde_json::Value> {
     if path.exists() {
         let content = fs::read_to_string(path)?;
         serde_json::from_str(&content).context("Failed to parse .claude/settings.json")
@@ -179,7 +179,7 @@ fn load_settings(path: &PathBuf) -> Result<serde_json::Value> {
     }
 }
 
-fn save_settings(path: &PathBuf, settings: &serde_json::Value) -> Result<()> {
+fn save_settings(path: &Path, settings: &serde_json::Value) -> Result<()> {
     let json = serde_json::to_string_pretty(settings).context("Failed to serialize settings")?;
     fs::write(path, format!("{json}\n"))?;
     Ok(())
