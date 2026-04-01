@@ -20,7 +20,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "sf-compact")]
 #[command(
-    about = "Convert Salesforce metadata XML to compact AI-friendly formats (YAML/JSON). Semantically lossless roundtrip."
+    about = "Cut Salesforce metadata tokens in half for AI coding agents. Converts XML to compact YAML/JSON with transparent hook integration."
 )]
 #[command(version)]
 struct Cli {
@@ -194,6 +194,20 @@ enum InitMode {
         name: Option<String>,
 
         /// Remove sf-compact blocks from all AI tool instruction files
+        #[arg(long)]
+        remove: bool,
+    },
+    /// Install Claude Code hook that redirects XML reads to compact files
+    Hook {
+        /// Source directory containing Salesforce XML metadata
+        #[arg(long, default_value = "force-app")]
+        source: String,
+
+        /// Directory containing compact files
+        #[arg(long, default_value = ".sf-compact")]
+        output: String,
+
+        /// Remove the hook
         #[arg(long)]
         remove: bool,
     },
@@ -481,6 +495,13 @@ fn main() -> Result<()> {
             } => {
                 init_instructions(&target, name.as_deref(), remove)?;
             }
+            InitMode::Hook {
+                source,
+                output,
+                remove,
+            } => {
+                init_hook(&source, &output, remove)?;
+            }
         },
         Commands::Changes {
             action,
@@ -754,3 +775,163 @@ fn init_instructions(target: &str, name: Option<&str>, remove: bool) -> Result<(
 
     Ok(())
 }
+
+fn init_hook(source: &str, output: &str, remove: bool) -> Result<()> {
+    let hooks_dir = PathBuf::from(".claude/hooks");
+    let script_path = hooks_dir.join("sf-compact-read.sh");
+    let settings_path = PathBuf::from(".claude/settings.json");
+
+    if remove {
+        // Remove hook script
+        if script_path.exists() {
+            fs::remove_file(&script_path)?;
+            println!("Removed {}", script_path.display());
+        }
+
+        // Remove hook from settings.json
+        if settings_path.exists() {
+            let content = fs::read_to_string(&settings_path)?;
+            let mut settings: serde_json::Value = serde_json::from_str(&content)?;
+
+            if let Some(hooks) = settings.get_mut("hooks") {
+                if let Some(pre) = hooks.get_mut("PreToolUse") {
+                    if let Some(arr) = pre.as_array_mut() {
+                        arr.retain(|entry| {
+                            entry
+                                .get("matcher")
+                                .and_then(|m| m.as_str())
+                                .map_or(true, |m| m != "Read")
+                                || entry
+                                    .pointer("/hooks/0/command")
+                                    .and_then(|c| c.as_str())
+                                    .map_or(true, |c| !c.contains("sf-compact-read"))
+                        });
+                    }
+                }
+            }
+
+            let json =
+                serde_json::to_string_pretty(&settings).context("Failed to serialize settings")?;
+            fs::write(&settings_path, format!("{json}\n"))?;
+            println!("Removed sf-compact hook from {}", settings_path.display());
+        }
+
+        return Ok(());
+    }
+
+    // Create hook script
+    fs::create_dir_all(&hooks_dir)?;
+
+    let script = generate_hook_script(source, output);
+    fs::write(&script_path, &script)?;
+
+    // Make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755))?;
+    }
+
+    println!("Created {}", script_path.display());
+
+    // Update .claude/settings.json
+    let mut settings: serde_json::Value = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)?;
+        serde_json::from_str(&content).context("Failed to parse .claude/settings.json")?
+    } else {
+        serde_json::json!({})
+    };
+
+    let hooks = settings
+        .as_object_mut()
+        .context("Expected settings to be a JSON object")?
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+
+    let pre_tool_use = hooks
+        .as_object_mut()
+        .context("Expected hooks to be a JSON object")?
+        .entry("PreToolUse")
+        .or_insert_with(|| serde_json::json!([]));
+
+    let arr = pre_tool_use
+        .as_array_mut()
+        .context("Expected PreToolUse to be an array")?;
+
+    // Remove existing sf-compact hook entry if present
+    arr.retain(|entry| {
+        entry
+            .pointer("/hooks/0/command")
+            .and_then(|c| c.as_str())
+            .map_or(true, |c| !c.contains("sf-compact-read"))
+    });
+
+    // Add new entry
+    arr.push(serde_json::json!({
+        "matcher": "Read",
+        "hooks": [{
+            "type": "command",
+            "command": ".claude/hooks/sf-compact-read.sh",
+            "timeout": 5
+        }]
+    }));
+
+    let json =
+        serde_json::to_string_pretty(&settings).context("Failed to serialize settings")?;
+    fs::write(&settings_path, format!("{json}\n"))?;
+
+    println!("Updated {} with PreToolUse Read hook", settings_path.display());
+    println!(
+        "\nWhen AI reads a file from {source}/, the hook will redirect to {output}/ if a compact version exists."
+    );
+
+    Ok(())
+}
+
+fn generate_hook_script(source: &str, output: &str) -> String {
+    format!(
+        r##"#!/bin/sh
+# sf-compact Read hook: redirects Salesforce XML reads to compact equivalents.
+# Installed by: sf-compact init hook
+# No external dependencies — pure POSIX shell.
+
+set -eu
+
+INPUT=$(cat)
+
+# Extract file_path from JSON input (lightweight — no jq dependency)
+FILE_PATH=$(printf '%s' "$INPUT" | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p')
+
+# Exit early if no file path
+[ -z "$FILE_PATH" ] && exit 0
+
+# Only intercept *-meta.xml files under the source directory
+case "$FILE_PATH" in
+  */{source}/*-meta.xml | {source}/*-meta.xml) ;;
+  *) exit 0 ;;
+esac
+
+# Compute compact path: replace source prefix with output prefix, swap extension
+RELATIVE="${{FILE_PATH#*{source}/}}"
+
+# Resolve prefix: if input is absolute, make compact path absolute too
+PREFIX="{output}"
+case "$FILE_PATH" in
+  /*) PREFIX="${{FILE_PATH%%{source}/*}}{output}" ;;
+esac
+
+# Try JSON first, then YAML
+for EXT in json yaml; do
+  COMPACT="$PREFIX/${{RELATIVE%-meta.xml}}-meta.$EXT"
+  if [ -f "$COMPACT" ]; then
+    printf '{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","updatedInput":{{"file_path":"%s"}},"additionalContext":"Reading compact version instead of XML. Original: %s"}}}}\n' "$COMPACT" "$FILE_PATH"
+    exit 0
+  fi
+done
+
+# No compact file found — let the original read proceed
+exit 0
+"##
+    )
+}
+
