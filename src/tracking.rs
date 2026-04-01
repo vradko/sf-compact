@@ -273,8 +273,8 @@ pub fn reset_tracking(compact_dir: &Path, scope: ResetScope) -> Result<()> {
                 .global
                 .iter()
                 .map(|(key, tracked)| {
-                    let current_mtime = file_mtime_epoch(&compact_dir.join(&tracked.compact_path))
-                        .unwrap_or(now);
+                    let current_mtime =
+                        file_mtime_epoch(&compact_dir.join(&tracked.compact_path)).unwrap_or(now);
                     (
                         key.clone(),
                         TrackedFile {

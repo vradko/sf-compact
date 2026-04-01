@@ -876,11 +876,13 @@ fn init_hook(source: &str, output: &str, remove: bool) -> Result<()> {
         }]
     }));
 
-    let json =
-        serde_json::to_string_pretty(&settings).context("Failed to serialize settings")?;
+    let json = serde_json::to_string_pretty(&settings).context("Failed to serialize settings")?;
     fs::write(&settings_path, format!("{json}\n"))?;
 
-    println!("Updated {} with PreToolUse Read hook", settings_path.display());
+    println!(
+        "Updated {} with PreToolUse Read hook",
+        settings_path.display()
+    );
     println!(
         "\nWhen AI reads a file from {source}/, the hook will redirect to {output}/ if a compact version exists."
     );
@@ -934,4 +936,3 @@ exit 0
 "##
     )
 }
-

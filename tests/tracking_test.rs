@@ -674,8 +674,8 @@ fn changes_since_deploy_detects_modifications_after_reset() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
     let arr = parsed["deployment"].as_array().unwrap();
     assert!(
         !arr.is_empty(),

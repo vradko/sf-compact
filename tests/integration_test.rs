@@ -1861,10 +1861,7 @@ fn init_hook_remove_cleans_up() {
     assert!(stdout.contains("Removed"));
 
     // Script should be gone
-    assert!(!dir
-        .path()
-        .join(".claude/hooks/sf-compact-read.sh")
-        .exists());
+    assert!(!dir.path().join(".claude/hooks/sf-compact-read.sh").exists());
 
     // Settings should have empty PreToolUse array
     let settings: serde_json::Value = serde_json::from_str(
@@ -1930,16 +1927,12 @@ fn init_hook_preserves_existing_settings() {
         .output()
         .unwrap();
 
-    let settings: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(claude_dir.join("settings.json")).unwrap(),
-    )
-    .unwrap();
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(claude_dir.join("settings.json")).unwrap())
+            .unwrap();
 
     // Existing settings preserved
-    assert_eq!(
-        settings.pointer("/permissions/allow/0").unwrap(),
-        "Bash"
-    );
+    assert_eq!(settings.pointer("/permissions/allow/0").unwrap(), "Bash");
     // Hook added
     assert!(settings.pointer("/hooks/PreToolUse/0").is_some());
 }
@@ -1973,7 +1966,8 @@ fn hook_script_redirects_xml_to_compact() {
         .unwrap();
 
     // Test the hook script
-    let input = r#"{"tool_input":{"file_path":"force-app/main/default/objects/Account.object-meta.xml"}}"#;
+    let input =
+        r#"{"tool_input":{"file_path":"force-app/main/default/objects/Account.object-meta.xml"}}"#;
     let output = std::process::Command::new("bash")
         .arg(dir.path().join(".claude/hooks/sf-compact-read.sh"))
         .current_dir(dir.path())
