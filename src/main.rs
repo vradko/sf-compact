@@ -797,14 +797,11 @@ fn init_hook(source: &str, output: &str, remove: bool) -> Result<()> {
                 if let Some(pre) = hooks.get_mut("PreToolUse") {
                     if let Some(arr) = pre.as_array_mut() {
                         arr.retain(|entry| {
-                            entry
-                                .get("matcher")
-                                .and_then(|m| m.as_str())
-                                .map_or(true, |m| m != "Read")
+                            (entry.get("matcher").and_then(|m| m.as_str()) != Some("Read"))
                                 || entry
                                     .pointer("/hooks/0/command")
                                     .and_then(|c| c.as_str())
-                                    .map_or(true, |c| !c.contains("sf-compact-read"))
+                                    .is_none_or(|c| !c.contains("sf-compact-read"))
                         });
                     }
                 }
@@ -863,7 +860,7 @@ fn init_hook(source: &str, output: &str, remove: bool) -> Result<()> {
         entry
             .pointer("/hooks/0/command")
             .and_then(|c| c.as_str())
-            .map_or(true, |c| !c.contains("sf-compact-read"))
+            .is_none_or(|c| !c.contains("sf-compact-read"))
     });
 
     // Add new entry
