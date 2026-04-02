@@ -1,3 +1,4 @@
+mod agent;
 mod config;
 mod constants;
 mod convert;
@@ -21,7 +22,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "sf-compact")]
 #[command(
-    about = "Cut Salesforce metadata tokens in half for AI coding agents. Converts XML to compact YAML/JSON with transparent hook integration."
+    about = "Cut Salesforce metadata tokens in half for AI coding agents. Converts XML to compact YAML/JSON with AI instruction file integration."
 )]
 #[command(version)]
 struct Cli {
@@ -198,7 +199,13 @@ enum InitMode {
         #[arg(long)]
         remove: bool,
     },
-    /// Install Claude Code hook that redirects XML reads to compact files
+    /// Create sf-explorer agent for Claude Code (reads metadata from .sf-compact/)
+    Agent {
+        /// Remove the agent file
+        #[arg(long)]
+        remove: bool,
+    },
+    /// Install Claude Code hook that redirects XML reads to compact files (optional, CLAUDE.md already handles this)
     Hook {
         /// Source directory containing Salesforce XML metadata
         #[arg(long, default_value = "force-app")]
@@ -495,6 +502,13 @@ fn main() -> Result<()> {
                 remove,
             } => {
                 init_instructions(&target, name.as_deref(), remove)?;
+            }
+            InitMode::Agent { remove } => {
+                if remove {
+                    agent::remove()?;
+                } else {
+                    agent::install()?;
+                }
             }
             InitMode::Hook {
                 source,
