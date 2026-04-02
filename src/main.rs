@@ -79,6 +79,20 @@ enum Commands {
         /// XML output indentation spaces (overrides config, default: 4)
         #[arg(long)]
         indent: Option<u8>,
+
+        /// Preview what would be unpacked without writing files
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Validate that compact files can be unpacked without errors
+    Validate {
+        /// Source path: directory or specific file(s)
+        #[arg(default_value = ".sf-compact")]
+        source: Vec<PathBuf>,
+
+        /// Only include files matching this glob pattern
+        #[arg(long)]
+        include: Option<String>,
     },
     /// Preview token/byte savings without writing files
     Stats {
@@ -315,6 +329,7 @@ fn main() -> Result<()> {
             output,
             include,
             indent,
+            dry_run,
         } => {
             let opts = convert::ConvertOpts {
                 paths: source,
@@ -324,8 +339,42 @@ fn main() -> Result<()> {
                 preserve_comments: None,
                 indent,
             };
-            let stats = convert::unpack(&opts, &output)?;
-            println!("Unpacked {} files", stats.files_processed);
+            if dry_run {
+                let result = convert::validate(&opts)?;
+                println!(
+                    "{} files would be unpacked ({} valid, {} errors)",
+                    result.total, result.valid, result.errors
+                );
+                for e in &result.error_details {
+                    eprintln!("  ! {e}");
+                }
+                if result.errors > 0 {
+                    std::process::exit(1);
+                }
+            } else {
+                let stats = convert::unpack(&opts, &output)?;
+                println!("Unpacked {} files", stats.files_processed);
+            }
+        }
+        Commands::Validate { source, include } => {
+            let opts = convert::ConvertOpts {
+                paths: source,
+                include,
+                format_override: None,
+                incremental: false,
+                preserve_comments: None,
+                indent: None,
+            };
+            let result = convert::validate(&opts)?;
+            if result.errors == 0 {
+                println!("OK: {} files validated successfully", result.valid);
+            } else {
+                println!("{} of {} files have errors:", result.errors, result.total);
+                for e in &result.error_details {
+                    eprintln!("  ! {e}");
+                }
+                std::process::exit(1);
+            }
         }
         Commands::Stats {
             source,

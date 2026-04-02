@@ -640,6 +640,59 @@ pub fn unpack(opts: &ConvertOpts, output: &Path) -> Result<ConvertStats> {
     Ok(stats)
 }
 
+/// Result of validating compact files without writing.
+pub struct ValidateResult {
+    pub total: usize,
+    pub valid: usize,
+    pub errors: usize,
+    pub error_details: Vec<String>,
+}
+
+/// Validate: check that all compact files can be parsed and converted to XML.
+pub fn validate(opts: &ConvertOpts) -> Result<ValidateResult> {
+    validate_paths(&opts.paths)?;
+    let files = find_compact_files_from_opts(opts);
+
+    let results: Vec<Result<(), String>> = files
+        .par_iter()
+        .map(|compact_path| {
+            let content = fs::read_to_string(compact_path)
+                .map_err(|e| format!("{}: read error: {e}", compact_path.display()))?;
+
+            let is_json = compact_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(SUFFIX_META_JSON));
+
+            if is_json {
+                json_writer::json_to_xml_node(&content)
+                    .map_err(|e| format!("{}: invalid JSON: {e}", compact_path.display()))?;
+            } else {
+                yaml_writer::yaml_to_xml_node(&content)
+                    .map_err(|e| format!("{}: invalid YAML: {e}", compact_path.display()))?;
+            }
+
+            Ok(())
+        })
+        .collect();
+
+    let total = results.len();
+    let mut error_details = Vec::new();
+    for r in &results {
+        if let Err(e) = r {
+            error_details.push(e.clone());
+        }
+    }
+    let errors = error_details.len();
+
+    Ok(ValidateResult {
+        total,
+        valid: total - errors,
+        errors,
+        error_details,
+    })
+}
+
 /// Per-file stats result for parallel collection.
 struct FileStatsResult {
     xml_path: PathBuf,

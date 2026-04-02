@@ -84,7 +84,8 @@ sf-compact pack
 
 **If you need to modify metadata**, edit the compact file in `{output_dir}/`, then run:
 ```
-sf-compact unpack
+sf-compact validate    # check for errors before unpacking
+sf-compact unpack      # restore XML in {source_dir}/
 ```
 
 **Non-metadata files** (Apex classes `.cls`, triggers `.trigger`, LWC `.js/.html/.css`)

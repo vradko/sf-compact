@@ -2122,3 +2122,118 @@ fn init_agent_idempotent() {
         "running init agent twice should produce identical output"
     );
 }
+
+// ─── Validate tests ───
+
+#[test]
+fn validate_passes_after_pack() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    let output = sf_compact()
+        .args(["validate", packed.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("validated successfully"),
+        "expected successful validation, got: {stdout}"
+    );
+}
+
+#[test]
+fn validate_fails_on_invalid_file() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    // Inject an invalid compact file
+    let bad_file = packed
+        .path()
+        .join("force-app/main/default/objects/Bad.object-meta.yaml");
+    std::fs::create_dir_all(bad_file.parent().unwrap()).unwrap();
+    std::fs::write(&bad_file, "broken: yaml: [[[").unwrap();
+
+    let output = sf_compact()
+        .args(["validate", packed.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "validate should fail with invalid files"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("have errors"),
+        "should report errors, got: {stdout}"
+    );
+}
+
+#[test]
+fn unpack_dry_run_does_not_write() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("would be unpacked"),
+        "expected dry-run output, got: {stdout}"
+    );
+
+    // Verify no files were actually written
+    let files: Vec<_> = walkdir::WalkDir::new(unpacked.path())
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .collect();
+    assert!(
+        files.is_empty(),
+        "dry-run should not write any files, found: {:?}",
+        files.iter().map(|f| f.path()).collect::<Vec<_>>()
+    );
+}
