@@ -48,9 +48,8 @@ pub fn remove() -> Result<()> {
 // Agent content
 // ---------------------------------------------------------------------------
 
-fn generate_agent() -> String {
-    format!(
-        "\
+fn generate_agent() -> &'static str {
+    "\
 ---
 name: sf-explorer
 model: haiku
@@ -67,5 +66,4 @@ Path mapping: replace force-app/ with .sf-compact/ and -meta.xml with -meta.yaml
 
 For Apex code (.cls, .trigger) and LWC/Aura (.js, .html, .css), read directly from force-app/.
 "
-    )
 }
