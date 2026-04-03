@@ -107,8 +107,8 @@ case "$FILE_PATH" in
   /*) PREFIX="${{FILE_PATH%%{source}/*}}{output}" ;;
 esac
 
-# Try JSON first, then YAML
-for EXT in json yaml; do
+# Try YAML first (default format), then JSON
+for EXT in yaml json; do
   COMPACT="$PREFIX/${{RELATIVE%-meta.xml}}-meta.$EXT"
   if [ -f "$COMPACT" ]; then
     printf '{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","updatedInput":{{"file_path":"%s"}},"additionalContext":"Reading compact version instead of XML. Original: %s"}}}}\n' "$COMPACT" "$FILE_PATH"

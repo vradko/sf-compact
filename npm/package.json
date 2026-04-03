@@ -1,7 +1,7 @@
 {
   "name": "sf-compact-cli",
-  "version": "0.4.0",
-  "description": "Cut Salesforce metadata tokens in half for AI coding agents. Converts XML to compact YAML/JSON with transparent Claude Code hook integration.",
+  "version": "0.4.1",
+  "description": "Cut Salesforce metadata tokens in half for AI coding agents. Converts XML to compact YAML/JSON with AI instruction file integration.",
   "license": "MIT",
   "repository": {
     "type": "git",

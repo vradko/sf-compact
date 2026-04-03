@@ -33,11 +33,11 @@ fn pack_and_unpack_roundtrip() {
         "unexpected pack output: {stdout}"
     );
 
-    // Verify JSON files were created (json is default format)
-    let json_profile = packed
+    // Verify YAML files were created (yaml is default format)
+    let yaml_profile = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.json");
-    assert!(json_profile.exists(), "JSON profile not created");
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
+    assert!(yaml_profile.exists(), "YAML profile not created");
 
     // Unpack YAML → XML
     let output = sf_compact()
@@ -335,13 +335,13 @@ fn pack_with_absolute_paths() {
         "unexpected output: {stdout}"
     );
 
-    // Check that JSON files are inside packed dir (json is default format)
-    let json_profile = packed
+    // Check that YAML files are inside packed dir (yaml is default format)
+    let yaml_profile = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.json");
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
     assert!(
-        json_profile.exists(),
-        "JSON should be inside output dir, not alongside source"
+        yaml_profile.exists(),
+        "YAML should be inside output dir, not alongside source"
     );
 }
 
@@ -366,15 +366,15 @@ fn config_init_creates_file() {
     assert!(config_path.exists(), ".sfcompact.yaml should be created");
 
     let content = std::fs::read_to_string(&config_path).unwrap();
-    // Should have smart defaults: JSON default, order-insensitive types get yaml
+    // Should have smart defaults: YAML default, order-sensitive types get yaml-ordered
     assert!(
-        content.contains("default_format: json"),
-        "config should have json as default_format, got: {content}"
+        content.contains("default_format: yaml"),
+        "config should have yaml as default_format, got: {content}"
     );
-    // Profile is order-insensitive, should be yaml for readability
+    // Flow is order-sensitive, should be yaml-ordered
     assert!(
-        content.contains("Profile: yaml"),
-        "Profile should be set to yaml in smart defaults, got: {content}"
+        content.contains("Flow: yaml-ordered"),
+        "Flow should be set to yaml-ordered in smart defaults, got: {content}"
     );
 }
 
@@ -649,7 +649,7 @@ fn pack_json_format() {
         "unexpected pack output: {stdout}"
     );
 
-    // Verify .json files were created (not .yaml)
+    // Verify .json files were created (not .yaml) — explicit --format json
     let json_profile = packed
         .path()
         .join("force-app/main/default/profiles/Admin.profile-meta.json");
@@ -1136,19 +1136,19 @@ fn config_init_uses_yaml_ordered_for_order_sensitive() {
 
     let content = std::fs::read_to_string(dir.path().join(".sfcompact.yaml")).unwrap();
 
-    // Order-insensitive types should use yaml for readability; order-sensitive use json default
+    // Order-sensitive types should use yaml-ordered; order-insensitive use yaml default
     assert!(
-        content.contains("Profile: yaml"),
-        "Profile should be yaml (order-insensitive), got: {content}"
+        content.contains("Flow: yaml-ordered"),
+        "Flow should be yaml-ordered (order-sensitive), got: {content}"
     );
     assert!(
-        content.contains("PermissionSet: yaml"),
-        "PermissionSet should be yaml (order-insensitive), got: {content}"
+        content.contains("FlexiPage: yaml-ordered"),
+        "FlexiPage should be yaml-ordered (order-sensitive), got: {content}"
     );
-    // Order-sensitive types like Flow should NOT have an override (they use json default)
+    // Order-insensitive types like Profile should NOT have an override (they use yaml default)
     assert!(
-        !content.contains("Flow:"),
-        "Flow should not have an override (uses json default), got: {content}"
+        !content.contains("Profile:"),
+        "Profile should not have an override (uses yaml default), got: {content}"
     );
 }
 
@@ -1342,7 +1342,7 @@ fn diff_detects_modified_files() {
     // Corrupt a packed file to simulate stale pack
     let profile_json = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.json");
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
     assert!(profile_json.exists());
     std::fs::write(&profile_json, "# corrupted\n").unwrap();
 
@@ -1393,7 +1393,7 @@ fn unpack_with_include_filter() {
             "-o",
             unpacked.path().to_str().unwrap(),
             "--include",
-            "*.profile-meta.json",
+            "*.profile-meta.yaml",
         ])
         .output()
         .expect("failed to unpack with --include");
@@ -1482,7 +1482,7 @@ fn lint_fails_when_stale() {
     // Corrupt a packed file
     let profile_json = packed
         .path()
-        .join("force-app/main/default/profiles/Admin.profile-meta.json");
+        .join("force-app/main/default/profiles/Admin.profile-meta.yaml");
     assert!(profile_json.exists());
     std::fs::write(&profile_json, "# corrupted\n").unwrap();
 
@@ -2038,5 +2038,202 @@ fn hook_script_passes_through_non_xml() {
     assert!(
         output.stdout.is_empty() || output.stdout == b"\n",
         "non-XML file should produce no output"
+    );
+}
+
+// ─── Agent tests ───
+
+#[test]
+fn init_agent_creates_file() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = sf_compact()
+        .args(["init", "agent"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run init agent");
+
+    assert!(
+        output.status.success(),
+        "init agent failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Created .claude/agents/sf-explorer.md"));
+
+    let agent_file = dir.path().join(".claude/agents/sf-explorer.md");
+    assert!(agent_file.exists());
+
+    let content = std::fs::read_to_string(&agent_file).unwrap();
+    assert!(content.contains("sf-explorer"));
+    assert!(content.contains(".sf-compact/"));
+    assert!(content.contains("model: haiku"));
+}
+
+#[test]
+fn init_agent_remove() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Install first
+    sf_compact()
+        .args(["init", "agent"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(dir.path().join(".claude/agents/sf-explorer.md").exists());
+
+    // Remove
+    let output = sf_compact()
+        .args(["init", "agent", "--remove"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(!dir.path().join(".claude/agents/sf-explorer.md").exists());
+}
+
+#[test]
+fn init_agent_idempotent() {
+    let dir = tempfile::tempdir().unwrap();
+
+    sf_compact()
+        .args(["init", "agent"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let content1 =
+        std::fs::read_to_string(dir.path().join(".claude/agents/sf-explorer.md")).unwrap();
+
+    sf_compact()
+        .args(["init", "agent"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let content2 =
+        std::fs::read_to_string(dir.path().join(".claude/agents/sf-explorer.md")).unwrap();
+
+    assert_eq!(
+        content1, content2,
+        "running init agent twice should produce identical output"
+    );
+}
+
+// ─── Validate tests ───
+
+#[test]
+fn validate_passes_after_pack() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    let output = sf_compact()
+        .args(["validate", packed.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("validated successfully"),
+        "expected successful validation, got: {stdout}"
+    );
+}
+
+#[test]
+fn validate_fails_on_invalid_file() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+
+    sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    // Inject an invalid compact file
+    let bad_file = packed
+        .path()
+        .join("force-app/main/default/objects/Bad.object-meta.yaml");
+    std::fs::create_dir_all(bad_file.parent().unwrap()).unwrap();
+    std::fs::write(&bad_file, "broken: yaml: [[[").unwrap();
+
+    let output = sf_compact()
+        .args(["validate", packed.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "validate should fail with invalid files"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("have errors"),
+        "should report errors, got: {stdout}"
+    );
+}
+
+#[test]
+fn unpack_dry_run_does_not_write() {
+    let fixtures = Path::new("tests/fixtures");
+    let packed = tempfile::tempdir().unwrap();
+    let unpacked = tempfile::tempdir().unwrap();
+
+    sf_compact()
+        .args([
+            "pack",
+            fixtures.to_str().unwrap(),
+            "-o",
+            packed.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    let output = sf_compact()
+        .args([
+            "unpack",
+            packed.path().to_str().unwrap(),
+            "-o",
+            unpacked.path().to_str().unwrap(),
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("would be unpacked"),
+        "expected dry-run output, got: {stdout}"
+    );
+
+    // Verify no files were actually written
+    let files: Vec<_> = walkdir::WalkDir::new(unpacked.path())
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .collect();
+    assert!(
+        files.is_empty(),
+        "dry-run should not write any files, found: {:?}",
+        files.iter().map(|f| f.path()).collect::<Vec<_>>()
     );
 }
