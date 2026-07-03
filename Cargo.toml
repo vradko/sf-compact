@@ -13,7 +13,7 @@ exclude = ["tests/", ".github/", "target/", "SF_COMPACT.md"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-quick-xml = "0.39"
+quick-xml = "0.41"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = { version = "1", features = ["preserve_order"] }
